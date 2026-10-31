@@ -105,7 +105,8 @@ TUI 写操作与管理员读私有任务都会写入审计；apikey 在展示与
 - agent：`.groupharness/groups/<id>/agents/<agent>/config.toml`
 
 逐字段 fallback：**agent → 群 → 全局**；空字符串 / 空数组表示继承。配置错误启动即失败并报路径。
-配置在每次 agent 唤醒开始时读取，因此一次工具循环不会中途换配置；`reload` 可重新读取文件。
+模型配置在每次 agent 唤醒开始时读取（一次工具循环不会中途换模型）；`file_permission` 与
+`working_directory` 在每次工具执行前重新合并读取。`reload` 用于重新读取文件。
 
 ```toml
 working_directory = ""         # 相对路径按项目根解析
