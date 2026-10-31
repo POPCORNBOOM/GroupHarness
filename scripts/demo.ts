@@ -125,7 +125,11 @@ while (Date.now() < deadline && (agentMessages.length === 0 || taskResults.lengt
 }
 await sleep(2_000);
 
-await harness.waitIdle(10_000);
+try {
+  await harness.waitIdle(30_000);
+} catch {
+  console.log('  (agent is still finishing a follow-up; closing anyway)');
+}
 const tasks = harness.requireGroup('demo').adminTasks(10);
 socket.close();
 await harness.close();
@@ -140,3 +144,5 @@ if (taskResults.length === 0 || taskResults[0]?.status !== 'done' || !taskResult
 }
 console.log('  tasks:', JSON.stringify(tasks));
 console.log('demo complete: chat reply + background task result on the independent channel');
+// Let a slow follow-up model request die after the demo is already complete.
+setTimeout(() => process.exit(0), 1_000).unref();
