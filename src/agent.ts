@@ -272,7 +272,18 @@ export class AgentRuntime {
       messages.push(assistant);
       if (completion.toolCalls.length === 0) return;
       for (const call of completion.toolCalls) {
-        const result = await this.executeToolCall(call, registry, config);
+        let result: { content: string; isError: boolean };
+        try {
+          // The design resolves file policy per tool execution; the model config
+          // above stays frozen for the whole loop (hot updates apply next wake).
+          const toolConfig = this.options.host.resolveConfig();
+          result = await this.executeToolCall(call, registry, toolConfig);
+        } catch (error) {
+          result = {
+            content: JSON.stringify({ error: 'failed', message: (error as Error).message }),
+            isError: true,
+          };
+        }
         const toolMessage: ChatMessage = {
           role: 'tool',
           tool_call_id: call.id,

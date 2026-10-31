@@ -558,7 +558,8 @@ export class Group {
   private canSeeTask(readerId: string, task: TaskRecord): boolean {
     if (readerId === SYSTEM_MEMBER || this.isAdmin(readerId)) return true;
     if (this.ownsTask(readerId, task)) return true;
-    return task.visibility === 'public';
+    if (task.visibility === 'public') return true;
+    return this.checkPermission(readerId, 'read_private_task');
   }
 
   private indexMembers(): void {
