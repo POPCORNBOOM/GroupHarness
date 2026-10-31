@@ -1,0 +1,31 @@
+{
+  "name": "group-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Group Harness — multi-group chat runtime for agents",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "tui": "tsx src/main.ts tui",
+    "demo": "tsx scripts/demo.ts",
+    "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "test": "tsx --test test/*.test.ts",
+    "gh": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "ink": "^6.4.0",
+    "react": "^19.2.0",
+    "smol-toml": "^1.4.2",
+    "tsx": "^4.20.6",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}
