@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   ConfigError,
   defaultConfigText,
+  initConfigFile,
   loadGlobalConfig,
   maskKey,
   maskSecrets,
@@ -14,6 +15,14 @@ import {
   resolveConfig,
 } from '../src/config';
 import { canonicalPath, checkPathAccess, PermissionDenied } from '../src/file-permission';
+
+test('initConfigFile creates the parent directory and never overwrites', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gh-init-'));
+  const path = join(dir, 'nested', '.groupharness', 'config.toml');
+  assert.equal(initConfigFile(path, { model: 'm' }), true);
+  assert.match(readFileSync(path, 'utf8'), /model = "m"/);
+  assert.equal(initConfigFile(path, { model: 'other' }), false);
+});
 
 test('model merge inherits empty values and overrides set ones', () => {
   const base = {

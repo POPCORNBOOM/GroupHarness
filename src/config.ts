@@ -439,6 +439,7 @@ export function saveAgentConfigLayer(path: string, layer: AgentConfigLayer): voi
 /** Create the config file if the directory is empty. */
 export function initConfigFile(path: string, seed?: Parameters<typeof defaultConfigText>[0]): boolean {
   if (existsSync(path)) return false;
+  mkdirSync(dirname(path), { recursive: true });
   writeFileAtomic(path, defaultConfigText(seed));
   return true;
 }
