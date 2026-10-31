@@ -75,6 +75,9 @@ export class Harness {
     const global = loadGlobalConfig(configPath, rootDir);
     const audit = new AuditLog(join(harnessDir, 'audit.jsonl'));
     const runtime = options.runtime ?? true;
+    if (runtime && (global.model.baseurl === '' || global.model.model === '')) {
+      console.warn('warning: model.baseurl/model is empty; agent calls will fail until configured');
+    }
     const llm = options.llm ?? new LlmClient();
     const harness = new Harness(rootDir, harnessDir, configPath, global, audit, llm, runtime);
 

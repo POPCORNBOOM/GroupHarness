@@ -146,7 +146,7 @@ function App({ harness }: { harness: Harness }) {
     }
   });
 
-  const logTail = log.slice(-8);
+  const logTail = log.slice(-12);
   return (
     <Box flexDirection="column">
       <Box>
