@@ -126,6 +126,31 @@ test('async tools create a task and deliver its result through the separate chan
   await harness.close();
 });
 
+test('an agent added at runtime starts consuming immediately', async () => {
+  const root = makeRoot();
+  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
+  const llm = new ScriptedLlm((_request, index) => {
+    if (index === 0) return toolCompletion('send_message', { text: 'carol here' }, 'call_1');
+    return textCompletion('done');
+  });
+  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, llm });
+  const admin = harness.admin('demo');
+  admin.registerMember({ bypass_permission: true }, { id: 'carol', type: 'agent' });
+  admin.addPolicy(
+    { bypass_permission: true },
+    { agent: 'carol', trigger_mode: 'all', sender_type: 'user', context_before: 0 },
+  );
+  harness.requireGroup('demo').send('alice', 'hello all', 'user_message', 'test');
+  await harness.waitIdle(5_000);
+  assert.ok(
+    harness
+      .requireGroup('demo')
+      .latestMessages(5)
+      .some((message) => message.sender_id === 'carol' && message.text === 'carol here'),
+  );
+  await harness.close();
+});
+
 test('pending events are consumed before the startup restart', async () => {
   const root = makeRoot();
   writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });

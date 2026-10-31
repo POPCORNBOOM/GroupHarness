@@ -25,6 +25,9 @@ test('public results reach every member; private results stay with publisher and
   const root = makeRoot();
   const meta = demoMeta();
   meta.members.push({ id: 'carol', type: 'user' });
+  meta.members.push({ id: 'dave', type: 'user' });
+  meta.identity_groups.auditors = ['dave'];
+  meta.permissions.read_private_task = ['auditors'];
   writeFixture(root, { meta, agentLayers: { bob: { tools: ['run_command_async'] } } });
   const harness = await Harness.open({ rootDir: root, runtime: false, im: false });
   const group = harness.requireGroup('demo');
@@ -43,6 +46,8 @@ test('public results reach every member; private results stay with publisher and
   assert.equal(carol.tasks.length, 1, 'a private result is not pushed to non-listeners');
   assert.equal(group.getTask('carol', 'task-private'), undefined);
   assert.deepEqual(group.listTasks('carol').map((task) => task.taskId), ['task-public']);
+  assert.equal(group.getTask('dave', 'task-private')?.status, 'done', 'read_private_task grants visibility');
+  assert.ok(group.listTasks('dave').some((task) => task.taskId === 'task-private'));
 
   group.store.insertTask({ ...taskRecord('task-listened', 'private'), listeners: ['carol'] });
   group.completeTask('task-listened', 'failed', undefined, 'boom');
