@@ -164,9 +164,14 @@ export class Group {
     const meta = loadGroupMeta(join(options.dir, 'meta.toml'), options.id);
     const store = GroupStore.open(options.dir);
     const group = new Group(options.id, options.dir, options.rootDir, store, options, meta);
-    group.validateStartup();
-    if (options.runtime) store.resetProcessing();
-    group.syncRuntimes();
+    try {
+      group.validateStartup();
+      if (options.runtime) store.resetProcessing();
+      group.syncRuntimes();
+    } catch (error) {
+      store.close();
+      throw error;
+    }
     return group;
   }
 

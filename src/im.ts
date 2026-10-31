@@ -122,10 +122,15 @@ export class ImServer {
       port: this.options.port,
       maxPayload: 1024 * 1024,
     });
-    await new Promise<void>((resolve, reject) => {
-      server.once('listening', () => resolve());
-      server.once('error', (error) => reject(error));
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('listening', () => resolve());
+        server.once('error', (error) => reject(error));
+      });
+    } catch (error) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
     server.on('connection', (socket) => this.handleConnection(socket));
     server.on('error', (error) => console.error(`im: server error: ${error.message}`));
     this.server = server;

@@ -81,7 +81,21 @@ export class Harness {
     const llm = options.llm ?? new LlmClient();
     const harness = new Harness(rootDir, harnessDir, configPath, global, audit, llm, runtime);
 
-    const groupsDir = join(harnessDir, 'groups');
+    try {
+      return await this.load(harness, global, options);
+    } catch (error) {
+      await harness.close();
+      throw error;
+    }
+  }
+
+  private static async load(
+    harness: Harness,
+    global: GlobalConfig,
+    options: HarnessOptions,
+  ): Promise<Harness> {
+    const runtime = harness.runtime;
+    const groupsDir = join(harness.harnessDir, 'groups');
     mkdirSync(groupsDir, { recursive: true });
     for (const entry of readdirSync(groupsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
@@ -90,14 +104,14 @@ export class Harness {
       const group = Group.open({
         dir: join(groupsDir, entry.name),
         id: entry.name,
-        rootDir,
+        rootDir: harness.rootDir,
         globalConfig: () => harness.global,
-        audit,
-        llm,
+        audit: harness.audit,
+        llm: harness.llm,
         runtime,
       });
       harness.groups.set(group.id, group);
-      harness.admins.set(group.id, new GroupAdmin(group, audit));
+      harness.admins.set(group.id, new GroupAdmin(group, harness.audit));
     }
 
     if (options.im === true) {

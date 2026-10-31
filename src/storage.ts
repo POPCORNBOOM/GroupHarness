@@ -213,7 +213,12 @@ export class GroupStore {
     db.prepare('ATTACH DATABASE ? AS queue').run(join(dir, 'queue.db'));
     db.exec('PRAGMA tasks.journal_mode=WAL; PRAGMA queue.journal_mode=WAL;');
     const store = new GroupStore(db, dir);
-    store.migrate();
+    try {
+      store.migrate();
+    } catch (error) {
+      db.close();
+      throw error;
+    }
     return store;
   }
 

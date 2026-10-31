@@ -71,13 +71,17 @@ async function main(): Promise<void> {
   try {
     if (tui) {
       await runTui(harness);
-      return;
+    } else {
+      const output = await runCommand(harness, argv.join(' '));
+      if (output !== '') console.log(output);
     }
-    const output = await runCommand(harness, argv.join(' '));
-    if (output !== '') console.log(output);
   } finally {
     await harness.close();
   }
+  // A model request may still be in flight after the shutdown budget; leaving a
+  // TUI process alive would return the user to a hung terminal. The unref'd
+  // timer does not delay a normal exit.
+  if (tui) setTimeout(() => process.exit(0), 1_000).unref();
 }
 
 main().catch((error: unknown) => {
