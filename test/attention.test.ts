@@ -19,7 +19,7 @@ test('member attention wakes an agent without a mention', async () => {
   group.send('alice', 'no mention here', 'user_message', 'test');
   const pending = group.store.takePending('bob');
   assert.equal(pending.length, 1);
-  assert.equal((pending[0]!.payload as { kind: string }).kind, 'chat');
+  assert.equal(pending[0]!.kind, 'chat');
   const payload = pending[0]!.payload as { trigger: { text: string }; history: unknown[]; context_before: number };
   assert.equal(payload.trigger.text, 'no mention here');
   assert.deepEqual(payload.history, []);

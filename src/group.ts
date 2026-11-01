@@ -394,7 +394,7 @@ export class Group {
       });
       for (const member of this.members.values()) {
         if (member.type !== 'agent') continue;
-        this.store.enqueue(member.id, 'system_restart', { kind: 'system_restart' }, now);
+        this.store.enqueue(member.id, 'system_restart', {}, now);
         agents.push(member.id);
       }
       return id;
@@ -510,7 +510,6 @@ export class Group {
     const agentRecipients = [...recipients].filter((id) => this.members.get(id)?.type === 'agent');
     const userRecipients = [...recipients].filter((id) => this.members.get(id)?.type === 'user');
     const payload = {
-      kind: 'task_result',
       task_id: taskId,
       tooltype: task.tooltype,
       status,
@@ -771,7 +770,6 @@ export class Group {
         agentId,
         'chat',
         {
-          kind: 'chat',
           trigger: { seq: messageId, sender_id: senderId, kind, text },
           history,
           context_before: limit,

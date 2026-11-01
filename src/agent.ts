@@ -47,14 +47,12 @@ export interface AgentRuntimeOptions {
 }
 
 interface ChatPayload {
-  kind: 'chat';
   trigger: { seq: number; sender_id: string; kind: string; text: string };
   history: { seq: number; sender_id: string; kind: string; text: string }[];
   context_before: number;
 }
 
 interface TaskResultPayload {
-  kind: 'task_result';
   task_id: string;
   tooltype: string;
   status: string;
@@ -77,7 +75,7 @@ function isChatMessage(value: unknown): value is ChatMessage {
 
 function renderPayload(item: QueueItem, index: number, total: number): string {
   const payload = item.payload as Record<string, unknown> | null;
-  const kind = typeof payload?.kind === 'string' ? payload.kind : item.kind;
+  const kind = item.kind;
   if (kind === 'chat') {
     const chat = payload as unknown as ChatPayload;
     return PROMPTS.chatBlock({
