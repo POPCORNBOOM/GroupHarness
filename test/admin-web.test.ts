@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Harness } from '../src/harness';
@@ -178,6 +178,51 @@ test('web admin serves the page, guards the API, and drives the same admin path'
       }),
     );
     assert.equal(permission.status, 200);
+
+    const contextPath = harness.requireGroup('demo').contextPath('bob');
+    writeFileSync(
+      contextPath,
+      [
+        JSON.stringify({ role: 'user', content: 'one' }),
+        JSON.stringify({ role: 'assistant', content: 'two' }),
+        JSON.stringify({ role: 'user', content: 'three' }),
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    assert.equal((await fetch(base + '/api/context?group=demo&agent=bob')).status, 401);
+    const contextPage = (await (
+      await fetch(base + '/api/context?group=demo&agent=bob&limit=2', withToken())
+    ).json()) as {
+      messages: { role: string; content: string }[];
+      before: number;
+      after: number;
+      size: number;
+      hasMore: boolean;
+    };
+    assert.deepEqual(contextPage.messages.map((message) => message.content), ['two', 'three']);
+    assert.equal(contextPage.hasMore, true);
+    assert.ok(contextPage.before > 0);
+    assert.equal(contextPage.after, contextPage.size);
+    const olderPage = (await (
+      await fetch(base + '/api/context?group=demo&agent=bob&before=' + contextPage.before, withToken())
+    ).json()) as { messages: { content: string }[]; hasMore: boolean };
+    assert.deepEqual(olderPage.messages.map((message) => message.content), ['one']);
+    assert.equal(olderPage.hasMore, false);
+    writeFileSync(contextPath, JSON.stringify({ role: 'tool', content: 'four' }) + '\n', { flag: 'a' });
+    const deltaPage = (await (
+      await fetch(base + '/api/context?group=demo&agent=bob&after=' + contextPage.after, withToken())
+    ).json()) as { messages: { content: string }[]; after: number; size: number };
+    assert.deepEqual(deltaPage.messages.map((message) => message.content), ['four']);
+    assert.equal(deltaPage.after, deltaPage.size);
+    assert.equal(
+      (await fetch(base + '/api/context?group=demo&agent=alice', withToken())).status,
+      400,
+    );
+    assert.equal(
+      (await fetch(base + '/api/context?group=demo&agent=bob&before=1&after=1', withToken())).status,
+      400,
+    );
 
     const sent = await fetch(
       base + '/api/messages',

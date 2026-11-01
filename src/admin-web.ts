@@ -7,7 +7,7 @@
  * same validation and audit path as the terminal console.
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ConfigError, maskSecrets } from './config';
 import { GroupAdmin, type AgentConfigPatch, type GroupConfigPatch } from './group-admin';
@@ -20,7 +20,114 @@ import { BUSINESS_TOOL_DEFINITIONS } from './tools';
 
 const GUARD = { bypass_permission: true } as const;
 const BODY_LIMIT = 64 * 1024;
+const CONTEXT_CHUNK = 1024 * 1024;
 const PAGE = readFileSync(new URL('./admin.html', import.meta.url), 'utf8');
+
+interface ContextOptions {
+  before?: number;
+  after?: number;
+  limit: number;
+}
+
+interface ContextPage {
+  messages: unknown[];
+  before: number;
+  after: number;
+  size: number;
+  mtimeMs: number;
+  hasMore: boolean;
+}
+
+function readRange(fd: number, start: number, end: number): Buffer {
+  const length = Math.max(0, end - start);
+  const buffer = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const read = readSync(fd, buffer, offset, length - offset, start + offset);
+    if (read <= 0) break;
+    offset += read;
+  }
+  return buffer.subarray(0, offset);
+}
+
+interface LineRange {
+  start: number;
+  end: number;
+  complete: boolean;
+}
+
+function lineRanges(buffer: Buffer): LineRange[] {
+  const ranges: LineRange[] = [];
+  let start = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    if (buffer[index] !== 0x0a) continue;
+    if (index > start) ranges.push({ start, end: index, complete: true });
+    start = index + 1;
+  }
+  if (start < buffer.length) ranges.push({ start, end: buffer.length, complete: false });
+  return ranges;
+}
+
+function parseContextLines(buffer: Buffer, ranges: LineRange[]): unknown[] {
+  const messages: unknown[] = [];
+  for (const range of ranges) {
+    try {
+      messages.push(JSON.parse(buffer.subarray(range.start, range.end).toString('utf8')) as unknown);
+    } catch {
+      // A torn or invalid line is skipped; context.jsonl itself does the same.
+    }
+  }
+  return messages;
+}
+
+/** Read a byte window from context.jsonl without loading the whole file. */
+function readContextWindow(path: string, options: ContextOptions): ContextPage {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const stat = statSync(path);
+    const size = stat.size;
+    const limit = Math.min(Math.max(options.limit, 1), 200);
+    if (options.after !== undefined) {
+      const start = Math.min(Math.max(options.after, 0), size);
+      const end = Math.min(size, start + CONTEXT_CHUNK);
+      const buffer = readRange(fd, start, end);
+      const complete = lineRanges(buffer).filter((range) => range.complete);
+      const selected = complete.slice(0, limit);
+      const messages = parseContextLines(buffer, selected);
+      const last = selected.at(-1);
+      const after = last === undefined ? start : start + last.end + 1;
+      return { messages, before: start, after, size, mtimeMs: stat.mtimeMs, hasMore: after < size };
+    }
+    const before = Math.min(Math.max(options.before ?? size, 0), size);
+    const start = Math.max(0, before - CONTEXT_CHUNK);
+    const buffer = readRange(fd, start, before);
+    let ranges = lineRanges(buffer);
+    if (start > 0 && ranges.length > 0) ranges = ranges.slice(1);
+    const complete = ranges.filter((range) => range.complete);
+    const selected = complete.slice(-limit);
+    const messages = parseContextLines(buffer, selected);
+    const first = selected[0];
+    const last = complete.at(-1);
+    const nextBefore = first === undefined ? 0 : start + first.start;
+    const after = last === undefined ? start : start + last.end + 1;
+    return {
+      messages,
+      before: nextBefore,
+      after,
+      size,
+      mtimeMs: stat.mtimeMs,
+      hasMore: nextBefore > 0,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { messages: [], before: 0, after: 0, size: 0, mtimeMs: 0, hasMore: false };
+    }
+    throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
 
 class HttpError extends Error {
   constructor(
@@ -160,6 +267,20 @@ export class AdminWeb {
         throw error;
       }
       this.sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (method === 'GET' && url.pathname === '/api/context') {
+      const group = this.groupFromQuery(url);
+      const agent = url.searchParams.get('agent') ?? '';
+      if (agent === '') throw new HttpError(400, '"agent" is required');
+      if (group.memberType(agent) !== 'agent') throw new HttpError(400, '"agent" must name an agent member');
+      const before = parseNumber(url.searchParams.get('before'), 'before', 0);
+      const after = parseNumber(url.searchParams.get('after'), 'after', 0);
+      if (before !== undefined && after !== undefined) {
+        throw new HttpError(400, 'use either "before" or "after", not both');
+      }
+      const limit = parseNumber(url.searchParams.get('limit'), 'limit', 1) ?? 50;
+      this.sendJson(response, 200, readContextWindow(group.contextPath(agent), { before, after, limit }));
       return;
     }
     if (method === 'GET' && url.pathname === '/api/search') {

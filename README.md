@@ -83,6 +83,7 @@ WebSocket 客户端连上来：
 - 六个权限到身份组的绑定
 - agent 列表；每个 agent 的 model / tools / working_directory / file_permission 覆盖
 - 任务列表、任务详情（读私有任务写审计）
+- agent context 查看（raw context.jsonl 懒加载 + 1s 轮询）
 - 最近消息与消息搜索
 - 以任意 user 成员身份发消息（source=`web-admin`，审计 actor=`web`）
 - 软件设置（全局 model / file_permission / working_directory / mock IM / 主题色）
@@ -112,6 +113,15 @@ API 写操作需要启动时随机生成的 token；终端 URL 里的 `?token=..
 设置写入 `config.toml` 并立即更新内存；model/file_permission 在下一次 agent 唤醒/工具执行时生效。
 每次尝试都会写审计（actor `web`，action `set_settings`）。保存会重写整个 `config.toml`，
 只保留文件头注释。
+
+### Agent context
+
+agents 页选中 agent 后，`Context` 区域显示该 agent 的 raw `context.jsonl`：
+
+- 初始只读尾部 50 条，点 `older` 按偏移继续往前
+- `live` 每 1 秒拉一次增量；取消勾选即停
+- 只显示原始消息，不重建 system prompt；effective context 需要 runtime snapshot
+- context 里可能有文件内容或密钥，仍然只走 admin token
 
 ### 一键真实模型演示
 
