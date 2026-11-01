@@ -49,7 +49,7 @@ test('an agent wakes on a mention, calls tools, replies, and persists context ac
   assert.equal(llm.requests.length, 2);
   const first = llm.requests[0]!;
   assert.match(first.system, /"bob"/);
-  assert.match(lastUserText(first), /\[群聊历史记录\]/);
+  assert.match(lastUserText(first), /收到新消息，请查阅聊天记录/);
   assert.match(lastUserText(first), /@bob hello/);
   const toolResult = llm.requests[1]!.messages.find((message) => message.role === 'tool');
   assert.ok(toolResult !== undefined);
@@ -187,7 +187,10 @@ test('pending events are consumed before the startup restart', async () => {
   const llm = new ScriptedLlm(() => textCompletion('idle'));
   const harness = await Harness.open({ rootDir: root, runtime: true, im: false, deliverRestart: true, llm });
   await harness.waitIdle(5_000);
-  const text = lastUserText(llm.requests[0]!);
+  const text = llm.requests[0]!.messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content)
+    .join('\n\n');
   assert.ok(text.includes('old pending'));
   assert.ok(text.includes('[系统重启]'));
   assert.ok(text.indexOf('old pending') < text.indexOf('[系统重启]'), 'old work is rendered before the restart');

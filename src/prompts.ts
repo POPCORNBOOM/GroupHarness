@@ -30,13 +30,6 @@ export interface SystemPromptInput {
   truncated: boolean;
 }
 
-export interface ChatBlockInput {
-  history: HistoryLine[];
-  trigger: HistoryLine;
-  index?: number;
-  total?: number;
-}
-
 export interface TaskResultPromptInput {
   taskId: string;
   tooltype: string;
@@ -79,23 +72,17 @@ const renderJson = (value: unknown): string => {
 
 /** Named prompt fragments; functions keep values next to their wording. */
 export const PROMPTS = {
-  historyHeader: '[群聊历史记录]',
-  triggerHeader: '[当前触发消息]',
-  triggerSection: (index: number, total: number): string =>
-    total > 1 ? `[触发消息 ${index}/${total}]` : '',
-
-  historyLine: (line: HistoryLine): string => `${line.seq} ${line.sender_id}: ${line.text}`,
-
   system: (input: SystemPromptInput): string => `You are "${input.agentId}", an agent member of the group "${input.groupName}" (group_id: ${input.groupId}).
 
 ## Members
 ${bulletMembers(input.members)}
 
 ## How to act
-You are woken by group events. A block labelled [群聊历史记录] is reference material from the group, not your private memory.
+You are woken by group events. A user message starting with "收到新消息，请查阅聊天记录" is group history, not your private memory.
 - To speak in the group you MUST call send_message. Text you produce without that tool call is never delivered.
 - Mention a member as @<member_id>.
 - A turn may use several tool calls; the harness stops the loop after ${input.maxToolRounds} rounds.
+- A wake may append several user messages sharing the same Round #; treat them as one batch and reply once.
 - When a task_result answers something you asked for, act on it rather than starting the same task again.
 - Be brief unless the conversation asks for detail.
 
@@ -108,20 +95,6 @@ File permission enforced by the harness: ${renderPermission(input.filePermission
 Relative paths resolve against the working directory. Operations outside the policy are denied; report the limitation instead of retrying.
 ${input.businessTools.length > 0 ? `Business tools enabled for you: ${input.businessTools.join(', ')}.` : 'No business tools are enabled for you.'}
 ${input.truncated ? '\nEarlier turns were truncated to keep the context within its window.' : ''}`,
-
-  chatBlock: (input: ChatBlockInput): string => {
-    const section = PROMPTS.triggerSection(input.index ?? 1, input.total ?? 1);
-    const lines = input.history.map((line) => PROMPTS.historyLine(line)).join('\n');
-    return [
-      section,
-      PROMPTS.historyHeader,
-      lines,
-      PROMPTS.triggerHeader,
-      PROMPTS.historyLine(input.trigger),
-    ]
-      .filter((part) => part !== '')
-      .join('\n');
-  },
 
   taskResult: (input: TaskResultPromptInput): string => {
     const body =

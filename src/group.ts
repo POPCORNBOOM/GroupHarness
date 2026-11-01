@@ -45,6 +45,7 @@ import {
   GroupStore,
   type MessageContent,
   type MessageKind,
+  type QueueItem,
   type SearchOptions,
   type SearchPage,
   type StoredMessage,
@@ -52,6 +53,8 @@ import {
   type TaskVisibility,
 } from './storage';
 import { AgentRuntime, type AgentHost } from './agent';
+import { QueueRenderer, type QueueTranslator } from './render';
+import type { ChatMessage } from './llm';
 import {
   buildToolRegistry,
   ToolError,
@@ -162,6 +165,7 @@ export class Group {
   private readonly agents = new Map<string, AgentRuntime>();
   private readonly transports = new Map<string, UserTransport>();
   private readonly attention = new Map<string, AttentionGrant>();
+  private readonly renderer = new QueueRenderer();
   private readonly metaPath: string;
   private started = false;
   private closed = false;
@@ -606,6 +610,14 @@ export class Group {
   }
 
   /** The only group surface tools may touch; the caller id is bound here. */
+  renderQueue(items: QueueItem[], roundHash: string): ChatMessage[] {
+    return this.renderer.render(items, roundHash);
+  }
+
+  registerQueueTranslator(translator: QueueTranslator): void {
+    this.renderer.register(translator);
+  }
+
   agentApi(agentId: string): ToolGroupApi {
     return {
       send: (text) => this.send(agentId, text, 'agent_message', `agent:${agentId}`),
@@ -673,6 +685,7 @@ export class Group {
       resolveConfig: () => this.resolveAgentConfig(agentId),
       businessTools: () => this.businessToolsFor(agentId),
       groupApi: () => api,
+      renderQueue: (items, roundHash) => this.renderQueue(items, roundHash),
       takePending: () => (this.closed ? [] : this.store.takePending(agentId)),
       countPending: () => (this.closed ? 0 : this.store.countPending(agentId)),
       markQueue: (ids, status, error) => {

@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { QueueRenderer, roundHash } from '../src/render';
+import type { QueueItem } from '../src/storage';
+
+function item(id: number, kind: string, payload: unknown): QueueItem {
+  return {
+    id,
+    targetAgentId: 'bob',
+    kind,
+    payload,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    status: 'pending',
+  };
+}
+
+function chat(
+  id: number,
+  trigger: { seq: number; sender_id: string; text: string },
+  history: { seq: number; sender_id: string; text: string }[] = [],
+): QueueItem {
+  return item(id, 'chat', {
+    trigger: { ...trigger, kind: 'user_message' },
+    history: history.map((line) => ({ ...line, kind: 'user_message' })),
+    context_before: history.length,
+  });
+}
+
+test('chat blocks merge adjacent histories, split gaps, and mark triggers', () => {
+  const items = [
+    chat(41, { seq: 24, sender_id: 'alice', text: '@bob 你看下这个报错' }, [
+      { seq: 20, sender_id: 'alice', text: '服务又挂了' },
+      { seq: 21, sender_id: 'bob', text: '我看看日志' },
+      { seq: 22, sender_id: 'alice', text: '@bob 日志在 /tmp/app.log' },
+      { seq: 23, sender_id: 'dave', text: '我也看下' },
+    ]),
+    chat(42, { seq: 25, sender_id: 'carol', text: '@bob 顺便看下磁盘' }),
+    chat(47, { seq: 29, sender_id: 'carol', text: '@bob 另一个话题' }),
+  ];
+  const messages = new QueueRenderer().render(items);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]!.content, [
+    `Round #${roundHash(items)}`,
+    '收到新消息，请查阅聊天记录',
+    '[20]alice: 服务又挂了',
+    '[21]bob: 我看看日志',
+    '[22]alice: @bob 日志在 /tmp/app.log',
+    '[23]dave: 我也看下',
+    '你在意的->[24]alice: @bob 你看下这个报错',
+    '你在意的->[25]carol: @bob 顺便看下磁盘',
+  ].join('\n'));
+  assert.equal(messages[1]!.content, [
+    `Round #${roundHash(items)}`,
+    '收到新消息，请查阅聊天记录',
+    '你在意的->[29]carol: @bob 另一个话题',
+  ].join('\n'));
+});
+
+test('mixed kinds keep id order and share one round hash', () => {
+  const items = [
+    chat(41, { seq: 24, sender_id: 'alice', text: '@bob 看这个' }, [
+      { seq: 20, sender_id: 'alice', text: '历史' },
+    ]),
+    item(43, 'task_result', {
+      task_id: 'task-8d1',
+      tooltype: 'run_command_async',
+      status: 'done',
+      publisher_id: 'bob',
+      visibility: 'private',
+      result: { exit_code: 0, stdout: 'ok' },
+      error: null,
+    }),
+    item(45, 'system_restart', {}),
+    item(46, 'unknown_kind', { probe: true }),
+    chat(47, { seq: 29, sender_id: 'carol', text: '@bob 另一个' }),
+  ];
+  const messages = new QueueRenderer().render(items);
+  const hash = `Round #${roundHash(items)}`;
+  assert.deepEqual(messages.map((message) => message.role), Array(5).fill('user'));
+  assert.ok(messages.every((message) => message.content.startsWith(hash + '\n')));
+  assert.match(messages[0]!.content, /你在意的->\[24\]alice: @bob 看这个/);
+  assert.match(messages[1]!.content, /^[\s\S]*\[任务结果\]\ntask_id: task-8d1/);
+  assert.match(messages[2]!.content, /\[系统重启\]/);
+  assert.match(messages[3]!.content, /\[未知事件\] \{"probe":true\}/);
+  assert.match(messages[4]!.content, /你在意的->\[29\]carol: @bob 另一个/);
+});
+
+test('translator output ids must come from the batch', () => {
+  const renderer = new QueueRenderer();
+  renderer.register({ kind: 'bad', translate: () => [{ id: 999, content: 'x' }] });
+  assert.throws(() => renderer.render([item(1, 'bad', {})]), /not present in the batch/);
+});

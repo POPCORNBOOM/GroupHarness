@@ -11,6 +11,7 @@ import type { ResolvedConfig } from './config';
 import type { QueueItem, QueueStatus } from './storage';
 import type { ChatMessage, LlmLike, ToolCall } from './llm';
 import { PROMPTS, type PromptMember } from './prompts';
+import { roundHash } from './render';
 import {
   buildToolRegistry,
   ToolError,
@@ -32,6 +33,7 @@ export interface AgentHost {
   /** Business tool names enabled for this agent. */
   businessTools(): string[];
   groupApi(): ToolGroupApi;
+  renderQueue(items: QueueItem[], roundHash: string): ChatMessage[];
   takePending(): QueueItem[];
   countPending(): number;
   markQueue(ids: number[], status: QueueStatus, error?: string): void;
@@ -46,21 +48,6 @@ export interface AgentRuntimeOptions {
   llm: LlmLike;
 }
 
-interface ChatPayload {
-  trigger: { seq: number; sender_id: string; kind: string; text: string };
-  history: { seq: number; sender_id: string; kind: string; text: string }[];
-  context_before: number;
-}
-
-interface TaskResultPayload {
-  task_id: string;
-  tooltype: string;
-  status: string;
-  publisher_id: string;
-  result: unknown;
-  error: string | null;
-}
-
 function isChatMessage(value: unknown): value is ChatMessage {
   if (value === null || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
@@ -73,31 +60,19 @@ function isChatMessage(value: unknown): value is ChatMessage {
   return true;
 }
 
-function renderPayload(item: QueueItem, index: number, total: number): string {
-  const payload = item.payload as Record<string, unknown> | null;
-  const kind = item.kind;
-  if (kind === 'chat') {
-    const chat = payload as unknown as ChatPayload;
-    return PROMPTS.chatBlock({
-      history: chat.history,
-      trigger: chat.trigger,
-      index,
-      total,
-    });
+function userRoundStarts(messages: ChatMessage[]): number[] {
+  const starts: number[] = [];
+  let lastKey: string | undefined;
+  for (const [index, message] of messages.entries()) {
+    if (message.role !== 'user') continue;
+    const firstLine = message.content.split('\n', 1)[0] ?? '';
+    const key = firstLine.startsWith('Round #') ? firstLine : `legacy:${index}`;
+    if (key !== lastKey) {
+      starts.push(index);
+      lastKey = key;
+    }
   }
-  if (kind === 'task_result') {
-    const result = payload as unknown as TaskResultPayload;
-    return PROMPTS.taskResult({
-      taskId: result.task_id,
-      tooltype: result.tooltype,
-      status: result.status,
-      publisherId: result.publisher_id,
-      result: result.result,
-      ...(result.error === null || result.error === undefined ? {} : { error: result.error }),
-    });
-  }
-  if (kind === 'system_restart') return PROMPTS.restart();
-  return `[未知事件] ${JSON.stringify(payload ?? item.kind)}`;
+  return starts;
 }
 
 function estimateTokens(messages: ChatMessage[]): number {
@@ -204,9 +179,9 @@ export class AgentRuntime {
     const config = this.options.host.resolveConfig();
     const registry = buildToolRegistry(this.options.host.businessTools());
 
-    const userText = items.map((item, index) => renderPayload(item, index + 1, items.length)).join('\n\n');
-    const userMessage: ChatMessage = { role: 'user', content: userText };
-    this.record(userMessage);
+    for (const message of this.options.host.renderQueue(items, roundHash(items))) {
+      this.record(message);
+    }
 
     const trimmed = this.trimmedContext(config);
     const system = PROMPTS.system({
@@ -226,10 +201,7 @@ export class AgentRuntime {
   }
 
   private trimmedContext(config: ResolvedConfig): { messages: ChatMessage[]; truncated: boolean } {
-    const userIndexes: number[] = [];
-    for (const [index, message] of this.context.entries()) {
-      if (message.role === 'user') userIndexes.push(index);
-    }
+    const userIndexes = userRoundStarts(this.context);
     let start = 0;
     if (userIndexes.length > CONTEXT_ROUNDS) {
       start = userIndexes[userIndexes.length - CONTEXT_ROUNDS] ?? 0;
