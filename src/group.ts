@@ -52,7 +52,15 @@ import {
   type TaskVisibility,
 } from './storage';
 import { AgentRuntime, type AgentHost } from './agent';
-import { buildToolRegistry, ToolError, type TaskDetail, type TaskSummary, type ToolGroupApi } from './tools';
+import {
+  buildToolRegistry,
+  ToolError,
+  type AttentionInput,
+  type AttentionView,
+  type TaskDetail,
+  type TaskSummary,
+  type ToolGroupApi,
+} from './tools';
 import type { LlmLike } from './llm';
 
 export interface UserTransport {
@@ -126,6 +134,17 @@ function taskSummary(task: TaskRecord): TaskSummary {
   };
 }
 
+const DEFAULT_ATTENTION_TTL_MS = 2 * 60_000;
+const MIN_ATTENTION_TTL_MS = 1_000;
+const MAX_ATTENTION_TTL_MS = 10 * 60_000;
+
+interface AttentionGrant {
+  members: string[];
+  groups: string[];
+  ttlMs: number;
+  deadline: number;
+}
+
 function taskDetail(task: TaskRecord): TaskDetail {
   return {
     ...taskSummary(task),
@@ -142,6 +161,7 @@ export class Group {
   private permissionState: PermissionState;
   private readonly agents = new Map<string, AgentRuntime>();
   private readonly transports = new Map<string, UserTransport>();
+  private readonly attention = new Map<string, AttentionGrant>();
   private readonly metaPath: string;
   private started = false;
   private closed = false;
@@ -325,6 +345,49 @@ export class Group {
     if (stored !== undefined) this.deliverToUsers(stored, senderId);
     for (const agentId of affected) this.kick(agentId);
     return messageId;
+  }
+
+  /** Send as an agent and optionally set a temporary extra wake scope. */
+  sendWithAttention(
+    agentId: string,
+    text: string,
+    input: AttentionInput,
+  ): { message_id: number; attention?: AttentionView } {
+    const grant = this.buildAttention(agentId, input);
+    const id = this.send(agentId, text, 'agent_message', `agent:${agentId}`);
+    if (grant === null) {
+      this.attention.delete(agentId);
+      return { message_id: id };
+    }
+    this.attention.set(agentId, grant);
+    return {
+      message_id: id,
+      attention: {
+        members: [...grant.members],
+        groups: [...grant.groups],
+        expires_at: new Date(grant.deadline).toISOString(),
+        ttl_ms: grant.ttlMs,
+      },
+    };
+  }
+
+  private buildAttention(agentId: string, input: AttentionInput): AttentionGrant | null {
+    const members = [...new Set(input.members ?? [])];
+    const groups = [...new Set(input.groups ?? [])];
+    for (const member of members) {
+      if (member === agentId) throw new ToolError('failed', 'cannot expect messages from yourself');
+      if (!this.members.has(member)) throw new ToolError('failed', `unknown member "${member}"`);
+    }
+    for (const key of groups) {
+      if (!(key in this.meta.identity_groups)) throw new ToolError('failed', `unknown identity group "${key}"`);
+    }
+    if (members.length === 0 && groups.length === 0) return null;
+    const requested = input.ttl_ms ?? DEFAULT_ATTENTION_TTL_MS;
+    if (typeof requested !== 'number' || !Number.isFinite(requested)) {
+      throw new ToolError('failed', 'expect.ttl_ms must be a finite number');
+    }
+    const ttlMs = Math.min(Math.max(Math.floor(requested), MIN_ATTENTION_TTL_MS), MAX_ATTENTION_TTL_MS);
+    return { members, groups, ttlMs, deadline: Date.now() + ttlMs };
   }
 
   /** Internal system notification used on startup; bypasses listen filters. */
@@ -544,6 +607,7 @@ export class Group {
   agentApi(agentId: string): ToolGroupApi {
     return {
       send: (text) => this.send(agentId, text, 'agent_message', `agent:${agentId}`),
+      sendWithAttention: (text, input) => this.sendWithAttention(agentId, text, input),
       searchMessages: (options) => this.searchMessages(agentId, options),
       listTasks: () => this.listTasks(agentId).slice(0, 100),
       getTask: (taskId) => this.getTask(agentId, taskId),
@@ -677,6 +741,25 @@ export class Group {
       if (policy.sender_type !== 'all' && policy.sender_type !== senderType) continue;
       if (policy.trigger_mode === 'mention' && !mention(text, policy.agent)) continue;
       matches.set(policy.agent, Math.max(matches.get(policy.agent) ?? 0, policy.context_before));
+    }
+    const nowMs = Date.now();
+    for (const [agentId, grant] of this.attention) {
+      if (grant.deadline <= nowMs) {
+        this.attention.delete(agentId);
+        continue;
+      }
+      if (agentId === senderId) continue;
+      if (this.members.get(agentId)?.type !== 'agent') {
+        this.attention.delete(agentId);
+        continue;
+      }
+      const memberHit = grant.members.includes(senderId);
+      const groupHit =
+        grant.groups.length > 0 &&
+        identityGroupsOf(this.permissionState, senderId).some((key) => grant.groups.includes(key));
+      if (memberHit || groupHit) {
+        if (!matches.has(agentId)) matches.set(agentId, 0);
+      }
     }
     for (const [agentId, contextBefore] of matches) {
       const limit = Math.min(Math.max(contextBefore, 0), 200);

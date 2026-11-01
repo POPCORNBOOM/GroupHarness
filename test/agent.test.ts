@@ -7,6 +7,31 @@ import { ScriptedLlm, FakeTransport, demoMeta, lastUserText, makeRoot, textCompl
 
 const CONTEXT = '/.groupharness/groups/demo/agents/bob/context.jsonl';
 
+test('send_message can leave attention that wakes the agent without a mention', async () => {
+  const root = makeRoot();
+  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
+  const llm = new ScriptedLlm((_request, index) => {
+    if (index === 0) {
+      return toolCompletion(
+        'send_message',
+        { text: 'watching alice', expect: { members: ['alice'], ttl_ms: 5_000 } },
+        'call_1',
+      );
+    }
+    return textCompletion('done');
+  });
+  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, llm });
+  const group = harness.requireGroup('demo');
+  group.send('alice', '@bob start', 'user_message', 'test');
+  await harness.waitIdle(5_000);
+  assert.equal(llm.requests.length, 2);
+  group.send('alice', 'follow up without mention', 'user_message', 'test');
+  await harness.waitIdle(5_000);
+  assert.equal(llm.requests.length, 3);
+  assert.match(lastUserText(llm.requests[2]!), /follow up without mention/);
+  await harness.close();
+});
+
 test('an agent wakes on a mention, calls tools, replies, and persists context across restart', async () => {
   const root = makeRoot();
   writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });

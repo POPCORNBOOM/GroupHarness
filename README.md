@@ -213,6 +213,9 @@ post。异常、超时、拒绝都变成结构化结果 `{error, message}`，不
   再按前缀匹配，`deny` 优先。`run_command` 只检查工作目录的 `execute` 权限，不提供 OS 级沙箱。
 - 私任务默认 `visibility=private`，只投发布者与 listeners；公开任务仍只走任务结果通道，不写聊天流。
 - `list_tasks` / `get_task` 的调用者 id 由 harness 注入，模型无法伪造。
+- `send_message` 可带 `expect: {members, groups, ttl_ms}`：TTL 内这些成员/身份组的消息不 @ 也唤醒该 agent；
+  `expect: {}` 清空，不传则保留已有窗口。默认 2 分钟，限制 1 秒到 10 分钟。窗口只存在群内存里，
+  进程重启清空；身份组按派发时实时展开。agent 也是普通成员，可以互相设置。
 
 ## 目录
 
@@ -250,7 +253,8 @@ npm test
 覆盖：配置合并与严格校验、路径权限（含符号链接逃逸）、FTS/短词回退与分页、事务回滚、
 v1 → v2 schema 迁移、队列状态机、分发规则、监听过滤、agent 工具循环与上下文恢复、
 运行时新增成员、异步任务结果通道、公开/私有任务可见性、两套 LLM 协议映射、模拟 IM 往返、
-Web 管理台 token/API/审计与样式约束、全局设置持久化与主题校验。
+Web 管理台 token/API/审计与样式约束、全局设置持久化与主题校验、注意力窗口/身份组实时展开/过期、
+context.jsonl 分块读取。
 
 ## 已知边界（第一版）
 

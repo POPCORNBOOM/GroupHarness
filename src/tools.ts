@@ -42,9 +42,23 @@ export interface TaskDetail extends TaskSummary {
   error: string | null;
 }
 
+export interface AttentionInput {
+  members?: string[];
+  groups?: string[];
+  ttl_ms?: number;
+}
+
+export interface AttentionView {
+  members: string[];
+  groups: string[];
+  expires_at: string;
+  ttl_ms: number;
+}
+
 /** The narrow group surface tools receive; the caller id is never an argument. */
 export interface ToolGroupApi {
   send(text: string): number;
+  sendWithAttention(text: string, input: AttentionInput): { message_id: number; attention?: AttentionView };
   searchMessages(options: {
     query: string;
     since?: string;
@@ -171,6 +185,35 @@ function optionalNumber(args: Record<string, unknown>, name: string): number | u
   return value;
 }
 
+function optionalStringArray(
+  args: Record<string, unknown>,
+  name: string,
+): string[] | undefined {
+  const value = args[name];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry === '')) {
+    throw new ToolError('failed', `argument "${name}" must be an array of non-empty strings`);
+  }
+  return value as string[];
+}
+
+function expectArg(args: Record<string, unknown>): AttentionInput | undefined {
+  const value = args.expect;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new ToolError('failed', 'argument "expect" must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  const members = optionalStringArray(record, 'members');
+  const groups = optionalStringArray(record, 'groups');
+  const ttl = optionalNumber(record, 'ttl_ms');
+  return {
+    ...(members === undefined ? {} : { members }),
+    ...(groups === undefined ? {} : { groups }),
+    ...(ttl === undefined ? {} : { ttl_ms: ttl }),
+  };
+}
+
 function optionalString(args: Record<string, unknown>, name: string): string | undefined {
   const value = args[name];
   if (value === undefined || value === null) return undefined;
@@ -188,16 +231,29 @@ function truncateText(text: string, max: number): { text: string; truncated: boo
 
 const sendMessageTool: ToolDefinition = {
   name: 'send_message',
-  description: 'Send a message to the group as yourself. Required to be seen by anyone.',
+  description:
+    'Send a message to the group as yourself. Required to be seen by anyone. Optionally declare expected follow-up senders; their messages wake you without @ until the TTL expires.',
   parameters: {
     type: 'object',
-    properties: { text: { type: 'string', description: 'Message text; mention with @member_id.' } },
+    properties: {
+      text: { type: 'string', description: 'Message text; mention with @member_id.' },
+      expect: {
+        type: 'object',
+        description: 'Temporarily also wake for messages from these members/identity groups.',
+        properties: {
+          members: { type: 'array', items: { type: 'string' }, description: 'Member ids.' },
+          groups: { type: 'array', items: { type: 'string' }, description: 'Identity group keys.' },
+          ttl_ms: { type: 'number', description: 'Clamped to 1s..10min; default 2min.' },
+        },
+      },
+    },
     required: ['text'],
   },
   execute(args, ctx) {
     const text = stringArg(args, 'text');
-    const id = ctx.group.send(text);
-    return { message_id: id };
+    const expect = expectArg(args);
+    if (expect === undefined) return { message_id: ctx.group.send(text) };
+    return ctx.group.sendWithAttention(text, expect);
   },
 };
 
