@@ -1,7 +1,9 @@
 /**
- * Entry point: `npm start` opens the control console; `npm run gh -- <cmd>`
- * runs one console command and exits; `npm run gh -- init` writes the starter
- * config.
+ * Entry point.
+ *
+ * `npm start` starts the web admin console (and the mock IM + agent runtimes)
+ * and prints a tokenized local URL. `npm run tui` keeps the terminal console.
+ * `npm run gh -- <cmd>` runs one console command without starting the service.
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,15 +24,29 @@ function configPath(): string {
   return join(process.cwd(), '.groupharness', 'config.toml');
 }
 
+function displayHost(host: string): string {
+  if (host === '0.0.0.0' || host === '::' || host === '') return '127.0.0.1';
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
 function usage(): string {
   return `Group Harness
 
 usage:
-  npm start                     open the TUI console
-  npm run gh -- <command>       run one console command
+  npm start                     start the web admin + mock IM (prints a tokenized URL)
+  npm run tui                   start the terminal console instead
+  npm run gh -- <command>       run one console command without the service
   npm run gh -- init            create .groupharness/config.toml
 
 ${HELP_TEXT}`;
+}
+
+function waitForSignal(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const stop = (): void => resolve();
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
 }
 
 async function main(): Promise<void> {
@@ -62,14 +78,26 @@ async function main(): Promise<void> {
     return;
   }
 
-  const tui = first === undefined || first === 'tui';
+  const web = first === undefined || first === 'web';
+  const tui = first === 'tui';
+  const interactive = web || tui;
   const harness = await Harness.open({
-    runtime: tui,
-    im: tui,
-    deliverRestart: tui,
+    runtime: interactive,
+    im: interactive,
+    webAdmin: web,
+    deliverRestart: interactive,
   });
   try {
-    if (tui) {
+    if (web) {
+      const adminUrl = harness.adminUrl;
+      const port = harness.imPort;
+      if (adminUrl === undefined || port === undefined) throw new Error('web admin did not start');
+      const host = displayHost(harness.globalConfig().im.host);
+      console.log(`Group Harness admin: ${adminUrl}`);
+      console.log(`Mock IM: ws://${host}:${port}`);
+      console.log('Press Ctrl-C to stop.');
+      await waitForSignal();
+    } else if (tui) {
       await runTui(harness);
     } else {
       const output = await runCommand(harness, argv.join(' '));
@@ -78,10 +106,9 @@ async function main(): Promise<void> {
   } finally {
     await harness.close();
   }
-  // A model request may still be in flight after the shutdown budget; leaving a
-  // TUI process alive would return the user to a hung terminal. The unref'd
-  // timer does not delay a normal exit.
-  if (tui) setTimeout(() => process.exit(0), 1_000).unref();
+  // A model request may still be in flight after the shutdown budget; the
+  // unref'd timer does not delay a normal exit.
+  if (interactive) setTimeout(() => process.exit(0), 1_000).unref();
 }
 
 main().catch((error: unknown) => {

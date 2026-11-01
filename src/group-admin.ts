@@ -34,6 +34,7 @@ export class GroupAdmin {
   constructor(
     private readonly group: Group,
     private readonly audit: AuditLog,
+    private readonly actor: string = 'tui',
   ) {}
 
   registerMember(guard: InternalGuard, input: { id: string; type: 'user' | 'agent' }): void {
@@ -201,7 +202,7 @@ export class GroupAdmin {
       run();
     } catch (error) {
       this.audit.record({
-        actor: 'tui',
+        actor: this.actor,
         group_id: this.group.id,
         action,
         target,
@@ -215,7 +216,7 @@ export class GroupAdmin {
 
   private success(action: string, target: string, before: unknown, after: unknown): void {
     this.audit.record({
-      actor: 'tui',
+      actor: this.actor,
       group_id: this.group.id,
       action,
       target,
@@ -240,8 +241,13 @@ function mergeModelLayer(
   const next: Partial<ModelConfig> = { ...(current ?? {}) };
   for (const [key, value] of Object.entries(patch) as [keyof ModelConfig, ModelConfig[keyof ModelConfig]][]) {
     if (value === undefined) continue;
-    if (value === '') delete next[key];
-    else (next as Record<string, unknown>)[key] = value;
+    // Empty strings clear string overrides; 0 is the web form's "clear" signal
+    // for numeric overrides (context_window and max_output_tokens).
+    if (value === '' || (value === 0 && (key === 'context_window' || key === 'max_output_tokens'))) {
+      delete next[key];
+    } else {
+      (next as Record<string, unknown>)[key] = value;
+    }
   }
   return next;
 }

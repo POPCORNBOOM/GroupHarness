@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group Harness Admin</title>
+<style>
+  :root {
+    --accent: #6ea8fe;
+    --bg: #0d0f12;
+    --fg: #d7dae0;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding-bottom: 24px;
+  }
+  h1, h2, h3 { margin: 0 0 8px; font-weight: 600; }
+  h1 { font-size: 16px; }
+  h2 { font-size: 13px; }
+  h3 { font-size: 13px; }
+  a { color: var(--accent); }
+  button, input, select, textarea {
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--fg);
+    border-radius: 0;
+    padding: 4px 6px;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    flex: none;
+  }
+  input[type="checkbox"]:checked { border-color: var(--accent); background: var(--accent); }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  ::selection { background: var(--accent); color: var(--bg); }
+  button { cursor: pointer; }
+  button:hover, button:focus, button.active { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--fg);
+    padding: 8px 12px;
+  }
+  header .spacer { flex: 1; }
+  .muted { opacity: .62; }
+  .error-text { color: var(--accent); }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+  aside { border-right: 1px solid var(--fg); padding: 10px; min-height: calc(100vh - 45px); }
+  main { padding: 12px; grid-column: 2; min-width: 0; }
+  .section { border: 1px solid var(--fg); padding: 10px; margin-bottom: 12px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+  label.inline { flex-direction: row; align-items: center; gap: 6px; display: inline-flex; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid var(--fg); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; }
+  td.text { white-space: pre-wrap; word-break: break-word; }
+  ul.groups { list-style: none; margin: 0; padding: 0; }
+  ul.groups li { margin-bottom: 4px; }
+  ul.groups button { display: block; width: 100%; text-align: left; }
+  ul.groups button.active { border-color: var(--accent); color: var(--accent); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tabs button.active { border-color: var(--accent); color: var(--accent); }
+  pre { border: 1px solid var(--fg); padding: 8px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 4px 8px; }
+  .kv .k { opacity: .62; }
+  .scroll { max-height: 340px; overflow: auto; }
+  .tool-list { display: flex; flex-wrap: wrap; gap: 12px; }
+  .token-gate { max-width: 720px; margin: 40px auto; }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--fg); min-height: 0; }
+    main { grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <strong>Group Harness</strong>
+  <span id="server" class="muted"></span>
+  <span id="status" class="muted"></span>
+  <span class="spacer"></span>
+  <button type="button" id="refresh">refresh</button>
+  <button type="button" id="reload-config">reload config</button>
+</header>
+
+<div id="no-token" class="section token-gate" hidden>
+  <h2>Admin token required</h2>
+  <p class="muted">Open the URL printed by <code>npm start</code> (it contains <code>?token=…</code>), or paste the token below.</p>
+  <form id="token-form" class="row">
+    <input id="token-input" type="text" size="48" placeholder="admin token" autocomplete="off">
+    <button type="submit">connect</button>
+  </form>
+</div>
+
+<div id="app" class="layout" hidden>
+  <aside>
+    <div class="section">
+      <h2>Groups</h2>
+      <ul id="group-list" class="groups"></ul>
+    </div>
+    <form id="create-group" class="section">
+      <h2>New group</h2>
+      <label>id <input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="demo"></label>
+      <label>name <input name="name" placeholder="Demo Group"></label>
+      <div class="row"><button type="submit">create</button></div>
+    </form>
+  </aside>
+
+  <main>
+    <div id="empty" class="section muted" hidden>No groups yet. Create one on the left.</div>
+    <div id="group-panel" hidden>
+      <div class="row" style="margin-bottom: 10px;">
+        <h1 id="group-title"></h1>
+        <span id="group-meta" class="muted"></span>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button type="button" data-tab="overview" class="active">overview</button>
+        <button type="button" data-tab="members">members</button>
+        <button type="button" data-tab="policies">policies</button>
+        <button type="button" data-tab="permissions">permissions</button>
+        <button type="button" data-tab="agents">agents</button>
+        <button type="button" data-tab="tasks">tasks</button>
+        <button type="button" data-tab="messages">messages</button>
+      </nav>
+
+      <section data-panel="overview">
+        <div class="section">
+          <h2>Summary</h2>
+          <div id="overview-summary" class="kv"></div>
+        </div>
+        <form id="group-config" class="section">
+          <h2>Group config overrides</h2>
+          <p class="muted">Blank string or blank list clears the override and inherits from the layer above. API key is never shown; leave it blank to keep the current value.</p>
+          <div class="grid">
+            <label>format
+              <select name="format">
+                <option value="">(inherit)</option>
+                <option value="completion">completion</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+            </label>
+            <label>baseurl <input name="baseurl" autocomplete="off"></label>
+            <label>model <input name="model" autocomplete="off"></label>
+            <label>reasoning_effort <input name="reasoning_effort"></label>
+            <label>context_window <input name="context_window" type="number" min="1"></label>
+            <label>max_output_tokens <input name="max_output_tokens" type="number" min="1"></label>
+            <label>working_directory <input name="working_directory"></label>
+            <label>apikey (set only) <input name="apikey" autocomplete="off" placeholder="leave blank to keep"></label>
+            <label>file default
+              <select name="file_default">
+                <option value="">(inherit)</option>
+                <option value="inherit">inherit</option>
+                <option value="deny_all">deny_all</option>
+              </select>
+            </label>
+            <label>read prefixes <input name="file_read" placeholder="/abs/a,/abs/b"></label>
+            <label>write prefixes <input name="file_write"></label>
+            <label>execute prefixes <input name="file_execute"></label>
+            <label>deny prefixes <input name="file_deny"></label>
+          </div>
+          <div class="row" style="margin-top: 8px;"><button type="submit">save group config</button></div>
+        </form>
+        <form id="admins-form" class="section">
+          <h2>Admins</h2>
+          <div class="row">
+            <input name="admins" size="60" placeholder="alice, bob">
+            <button type="submit">save admins</button>
+          </div>
+          <p class="muted">Admins implicitly hold every permission; reads of private tasks are audited.</p>
+        </form>
+      </section>
+
+      <section data-panel="members" hidden>
+        <div class="section">
+          <h2>Members</h2>
+          <div id="members-table"></div>
+        </div>
+        <form id="add-member" class="section">
+          <h2>Add member</h2>
+          <div class="row">
+            <input name="id" placeholder="member id" required>
+            <select name="type"><option value="user">user</option><option value="agent">agent</option></select>
+            <button type="submit">add</button>
+          </div>
+        </form>
+        <form id="member-groups" class="section">
+          <h2>Identity groups</h2>
+          <div class="row">
+            <select name="member"></select>
+            <input name="groups" size="50" placeholder="core, crew">
+            <button type="submit">save groups</button>
+          </div>
+        </form>
+        <form id="member-listen" class="section">
+          <h2>Listen (user only)</h2>
+          <div class="grid">
+            <label>user <select name="member"></select></label>
+            <label>mode
+              <select name="mode">
+                <option value="all">all</option>
+                <option value="blacklist">blacklist</option>
+                <option value="whitelist">whitelist</option>
+              </select>
+            </label>
+            <label>senders <input name="senders" placeholder="alice,bob"></label>
+            <label>kinds <input name="kinds" placeholder="user_message,agent_message"></label>
+          </div>
+          <div class="row" style="margin-top: 8px;"><button type="submit">save listen</button></div>
+        </form>
+      </section>
+
+      <section data-panel="policies" hidden>
+        <div class="section">
+          <h2>Response policies</h2>
+          <div id="policies-table"></div>
+        </div>
+        <form id="policy-form" class="section">
+          <h2>Add policy</h2>
+          <div class="grid">
+            <label>agent <select name="agent"></select></label>
+            <label>trigger
+              <select name="trigger_mode"><option value="mention">mention</option><option value="all">all</option></select>
+            </label>
+            <label>sender
+              <select name="sender_type"><option value="user">user</option><option value="agent">agent</option><option value="all">all</option></select>
+            </label>
+            <label>context_before <input name="context_before" type="number" min="0" value="0"></label>
+          </div>
+          <div class="row" style="margin-top: 8px;"><button type="submit">add policy</button></div>
+        </form>
+      </section>
+
+      <section data-panel="permissions" hidden>
+        <div class="section">
+          <h2>Permissions</h2>
+          <p class="muted">Permission → identity group keys. Empty clears the binding. Admins bypass this table.</p>
+          <div id="permissions-table"></div>
+        </div>
+      </section>
+
+      <section data-panel="agents" hidden>
+        <div class="section">
+          <h2>Agents</h2>
+          <div id="agent-list" class="row"></div>
+        </div>
+        <form id="agent-config" class="section" hidden>
+          <h2 id="agent-title"></h2>
+          <div id="agent-summary" class="kv"></div>
+          <p class="muted">Blank string or blank list clears the override. API key is never shown; leave it blank to keep it.</p>
+          <div class="grid">
+            <label>format
+              <select name="format">
+                <option value="">(inherit)</option>
+                <option value="completion">completion</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+            </label>
+            <label>baseurl <input name="baseurl" autocomplete="off"></label>
+            <label>model <input name="model" autocomplete="off"></label>
+            <label>reasoning_effort <input name="reasoning_effort"></label>
+            <label>context_window <input name="context_window" type="number" min="1"></label>
+            <label>max_output_tokens <input name="max_output_tokens" type="number" min="1"></label>
+            <label>working_directory <input name="working_directory"></label>
+            <label>apikey (set only) <input name="apikey" autocomplete="off" placeholder="leave blank to keep"></label>
+            <label>file default
+              <select name="file_default">
+                <option value="">(inherit)</option>
+                <option value="inherit">inherit</option>
+                <option value="deny_all">deny_all</option>
+              </select>
+            </label>
+            <label>read prefixes <input name="file_read"></label>
+            <label>write prefixes <input name="file_write"></label>
+            <label>execute prefixes <input name="file_execute"></label>
+            <label>deny prefixes <input name="file_deny"></label>
+          </div>
+          <div class="tool-list" id="agent-tools" style="margin-top: 10px;"></div>
+          <div class="row" style="margin-top: 8px;"><button type="submit">save agent config</button></div>
+        </form>
+        <div id="agent-empty" class="section muted" hidden>No agent members in this group.</div>
+      </section>
+
+      <section data-panel="tasks" hidden>
+        <div class="section">
+          <h2>Tasks</h2>
+          <div id="tasks-table"></div>
+        </div>
+        <div class="section">
+          <h2>Task detail</h2>
+          <pre id="task-detail">Select a task.</pre>
+        </div>
+      </section>
+
+      <section data-panel="messages" hidden>
+        <div class="section">
+          <h2>Recent messages</h2>
+          <div id="messages-table" class="scroll"></div>
+        </div>
+        <form id="search-form" class="section">
+          <h2>Search messages</h2>
+          <div class="grid">
+            <label>query <input name="q" required></label>
+            <label>since (ISO) <input name="since" placeholder="2026-01-01T00:00:00Z"></label>
+            <label>until (ISO) <input name="until"></label>
+            <label>limit <input name="limit" type="number" min="1" max="200" value="50"></label>
+          </div>
+          <div class="row" style="margin-top: 8px;">
+            <button type="submit">search</button>
+            <button type="button" id="search-next" hidden>next page</button>
+          </div>
+        </form>
+        <div class="section">
+          <h2>Search results</h2>
+          <div id="search-results" class="scroll"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TOKEN_KEY = 'gh_admin_token';
+  var token = '';
+  var state = null;
+  var selectedGroup = localStorage.getItem('gh_group') || '';
+  var selectedAgent = '';
+  var activeTab = 'overview';
+  var searchNext = null;
+  var wired = false;
+
+  function $(selector) { return document.querySelector(selector); }
+  function $$(selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); }
+  function text(value) { return value === null || value === undefined ? '' : String(value); }
+  function splitList(value) {
+    return text(value).split(',').map(function (part) { return part.trim(); }).filter(Boolean);
+  }
+  function shorten(value, max) {
+    var single = text(value).replace(/\n/g, ' \u21b5 ');
+    return single.length > max ? single.slice(0, max) + '…' : single;
+  }
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (key) {
+      var value = attrs[key];
+      if (key === 'class') node.className = value;
+      else if (key === 'text') node.textContent = text(value);
+      else if (key === 'value') node.value = value;
+      else if (key === 'dataset') Object.keys(value).forEach(function (name) { node.dataset[name] = value[name]; });
+      else if (key === 'onclick') node.addEventListener('click', value);
+      else if (value !== undefined && value !== null) node.setAttribute(key, String(value));
+    });
+    (Array.isArray(children) ? children : [children]).forEach(function (child) {
+      if (child === null || child === undefined) return;
+      node.append(child instanceof Node ? child : document.createTextNode(text(child)));
+    });
+    return node;
+  }
+  function button(label, onclick) {
+    return el('button', { type: 'button', onclick: onclick }, label);
+  }
+  function setStatus(message, isError) {
+    var node = $('#status');
+    node.textContent = message || '';
+    node.className = isError ? 'error-text' : 'muted';
+  }
+  function showTokenGate() {
+    $('#app').hidden = true;
+    $('#no-token').hidden = false;
+    $('#token-input').focus();
+  }
+  function hideTokenGate() {
+    $('#no-token').hidden = true;
+    $('#app').hidden = false;
+  }
+  async function api(path, options) {
+    var init = Object.assign({}, options || {});
+    init.headers = Object.assign({ 'x-admin-token': token }, init.headers || {});
+    if (init.body !== undefined) {
+      init.headers['content-type'] = 'application/json';
+      init.body = JSON.stringify(init.body);
+    }
+    var response = await fetch(path, init);
+    var data = null;
+    try { data = await response.json(); } catch (error) { data = null; }
+    if (!response.ok) {
+      if (response.status === 401) {
+        token = '';
+        sessionStorage.removeItem(TOKEN_KEY);
+        showTokenGate();
+      }
+      throw new Error((data && data.error) || (response.status + ' ' + response.statusText));
+    }
+    return data;
+  }
+  function pathRule(value) {
+    var trimmed = text(value).trim();
+    if (trimmed === '') return [];
+    if (trimmed === 'deny_all') return 'deny_all';
+    return splitList(trimmed);
+  }
+  function optionalPositive(value, label) {
+    var trimmed = text(value).trim();
+    if (trimmed === '') return undefined;
+    var parsed = Number(trimmed);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(label + ' must be a positive integer');
+    return parsed;
+  }
+  function buildConfigPatch(data) {
+    var model = {
+      format: data.format,
+      baseurl: data.baseurl,
+      model: data.model,
+      reasoning_effort: data.reasoning_effort
+    };
+    // 0 clears a numeric override; a blank field therefore sends 0.
+    model.context_window = optionalPositive(data.context_window, 'context_window') || 0;
+    model.max_output_tokens = optionalPositive(data.max_output_tokens, 'max_output_tokens') || 0;
+    if (text(data.apikey).trim() !== '') model.apikey = data.apikey.trim();
+    return {
+      model: model,
+      workingDirectory: data.working_directory,
+      filePermission: {
+        default: data.file_default || 'inherit',
+        read: pathRule(data.file_read),
+        write: pathRule(data.file_write),
+        execute: pathRule(data.file_execute),
+        deny: splitList(data.file_deny)
+      }
+    };
+  }
+  function formData(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+  function formatListen(listen) {
+    if (!listen) return 'all';
+    var parts = [listen.mode];
+    if (listen.senders && listen.senders.length) parts.push('senders=' + listen.senders.join(','));
+    if (listen.kinds && listen.kinds.length) parts.push('kinds=' + listen.kinds.join(','));
+    return parts.join(' ');
+  }
+  function formatPermission(permission) {
+    if (!permission) return '(none)';
+    function rule(value) {
+      if (value === 'deny_all') return 'deny_all';
+      if (!value || !value.length) return 'inherit';
+      return value.join(',');
+    }
+    var out = ['read=' + rule(permission.read), 'write=' + rule(permission.write), 'execute=' + rule(permission.execute)];
+    if (permission.deny && permission.deny.length) out.push('deny=' + permission.deny.join(','));
+    return out.join(' ');
+  }
+  function renderTable(container, headers, rows) {
+    container.replaceChildren();
+    if (!rows.length) {
+      container.append(el('p', { class: 'muted', text: '(empty)' }));
+      return;
+    }
+    var table = el('table');
+    var head = el('thead');
+    head.append(el('tr', {}, headers.map(function (header) { return el('th', { text: header }); })));
+    table.append(head);
+    var body = el('tbody');
+    rows.forEach(function (row) {
+      body.append(el('tr', {}, row.map(function (cell) {
+        return el('td', {}, cell instanceof Node ? cell : text(cell));
+      })));
+    });
+    table.append(body);
+    container.append(table);
+  }
+
+  async function load(fillForms) {
+    setStatus('loading…');
+    try {
+      var suffix = selectedGroup ? '?group=' + encodeURIComponent(selectedGroup) : '';
+      state = await api('/api/state' + suffix);
+      if (!state.group && state.groups.length) {
+        selectedGroup = state.groups[0].id;
+        localStorage.setItem('gh_group', selectedGroup);
+        return load(fillForms);
+      }
+      if (state.group) {
+        selectedGroup = state.group.id;
+        localStorage.setItem('gh_group', selectedGroup);
+      }
+      render(fillForms !== false);
+      setStatus('');
+    } catch (error) {
+      if (selectedGroup && /unknown group/i.test(error.message)) {
+        selectedGroup = '';
+        return load(fillForms);
+      }
+      setStatus('error: ' + error.message, true);
+    }
+  }
+
+  function render(fillForms) {
+    $('#server').textContent = state.im ? 'IM ' + state.im : '';
+    renderGroups();
+    var group = state.group;
+    $('#empty').hidden = group !== null;
+    $('#group-panel').hidden = group === null;
+    if (!group) return;
+    $('#group-title').textContent = group.name + ' · ' + group.id;
+    $('#group-meta').textContent =
+      group.members.length + ' members · ' + group.agents.length + ' agents · ' +
+      group.policies.length + ' policies · ' + group.tasks.length + ' tasks';
+    $$('#tabs button').forEach(function (tab) {
+      tab.classList.toggle('active', tab.dataset.tab === activeTab);
+    });
+    $$('[data-panel]').forEach(function (panel) {
+      panel.hidden = panel.dataset.panel !== activeTab;
+    });
+    renderOverview();
+    renderMembers();
+    renderPolicies();
+    renderPermissions();
+    renderAgents();
+    renderTasks();
+    renderMessages();
+    if (fillForms) {
+      fillGroupForms();
+      fillAgentForm();
+    }
+  }
+
+  function renderGroups() {
+    var list = $('#group-list');
+    list.replaceChildren();
+    if (!state.groups.length) {
+      list.append(el('li', { class: 'muted', text: '(no groups)' }));
+      return;
+    }
+    state.groups.forEach(function (group) {
+      var item = button(group.id + ' · ' + group.name, function () {
+        selectedGroup = group.id;
+        selectedAgent = '';
+        localStorage.setItem('gh_group', selectedGroup);
+        load(true);
+      });
+      item.className = state.group && state.group.id === group.id ? 'active' : '';
+      item.title = group.error || (group.members + ' members, ' + group.agents + ' agents');
+      list.append(el('li', {}, item));
+    });
+  }
+
+  function renderOverview() {
+    var group = state.group;
+    var summary = $('#overview-summary');
+    summary.replaceChildren();
+    var rows = [
+      ['admins', group.admins.length ? group.admins.join(', ') : '(none)'],
+      ['model', group.model.format + ' ' + (group.model.model || '(unset)')],
+      ['baseurl', group.model.baseurl || '(unset)'],
+      ['working_directory', group.workingDirectory],
+      ['file_permission', formatPermission(group.filePermission)],
+      ['messages', String(group.messages.length)],
+      ['tasks', String(group.tasks.length)]
+    ];
+    rows.forEach(function (row) {
+      summary.append(el('span', { class: 'k', text: row[0] }));
+      summary.append(el('span', { text: row[1] }));
+    });
+  }
+
+  function fillConfigFields(form, model, workingDirectory, permission) {
+    model = model || {};
+    permission = permission || {};
+    form.elements.format.value = model.format || '';
+    form.elements.baseurl.value = model.baseurl || '';
+    form.elements.model.value = model.model || '';
+    form.elements.reasoning_effort.value = model.reasoning_effort || '';
+    form.elements.context_window.value = model.context_window === undefined ? '' : model.context_window;
+    form.elements.max_output_tokens.value = model.max_output_tokens === undefined ? '' : model.max_output_tokens;
+    form.elements.working_directory.value = workingDirectory || '';
+    form.elements.file_default.value = permission.default || '';
+    form.elements.file_read.value = permission.read === 'deny_all' ? 'deny_all' : (permission.read || []).join(',');
+    form.elements.file_write.value = permission.write === 'deny_all' ? 'deny_all' : (permission.write || []).join(',');
+    form.elements.file_execute.value = permission.execute === 'deny_all' ? 'deny_all' : (permission.execute || []).join(',');
+    form.elements.file_deny.value = (permission.deny || []).join(',');
+    form.elements.apikey.value = '';
+  }
+
+  function fillGroupForms() {
+    var group = state.group;
+    if (!group) return;
+    var overrides = group.overrides || {};
+    fillConfigFields($('#group-config'), overrides.model, overrides.workingDirectory, overrides.filePermission);
+    $('#admins-form').elements.admins.value = group.admins.join(', ');
+  }
+
+  function renderMembers() {
+    var group = state.group;
+    renderTable($('#members-table'), ['id', 'type', 'admin', 'groups', 'listen'], group.members.map(function (member) {
+      return [
+        member.id,
+        member.type,
+        member.admin ? 'yes' : '',
+        member.identityGroups.join(', '),
+        member.type === 'user' ? formatListen(member.listen) : ''
+      ];
+    }));
+    var groupSelect = $('#member-groups').elements.member;
+    var listenSelect = $('#member-listen').elements.member;
+    fillOptions(groupSelect, group.members, groupSelect.value);
+    fillOptions(listenSelect, group.members.filter(function (member) { return member.type === 'user'; }), listenSelect.value);
+    selectMember(groupSelect.value);
+    selectListenMember(listenSelect.value);
+  }
+  function fillOptions(select, members, preferred) {
+    select.replaceChildren();
+    members.forEach(function (member) {
+      select.append(el('option', { value: member.id }, member.id + ' (' + member.type + ')'));
+    });
+    if (preferred && members.some(function (member) { return member.id === preferred; })) select.value = preferred;
+  }
+  function findMember(id) {
+    return state.group ? state.group.members.find(function (member) { return member.id === id; }) : undefined;
+  }
+  function selectMember(id) {
+    var member = findMember(id);
+    var input = $('#member-groups').elements.groups;
+    if (member) input.value = member.identityGroups.join(', ');
+  }
+  function selectListenMember(id) {
+    var member = findMember(id);
+    var form = $('#member-listen');
+    if (!member) return;
+    var listen = member.listen || { mode: 'all', senders: [], kinds: [] };
+    form.elements.mode.value = listen.mode;
+    form.elements.senders.value = (listen.senders || []).join(',');
+    form.elements.kinds.value = (listen.kinds || []).join(',');
+  }
+
+  function renderPolicies() {
+    var group = state.group;
+    renderTable($('#policies-table'), ['agent', 'trigger', 'sender', 'context_before', ''], group.policies.map(function (policy) {
+      return [
+        policy.agent,
+        policy.trigger_mode,
+        policy.sender_type,
+        String(policy.context_before),
+        button('clear', async function () {
+          try {
+            await api('/api/policies?group=' + encodeURIComponent(group.id) + '&agent=' + encodeURIComponent(policy.agent), { method: 'DELETE' });
+            await load(true);
+            setStatus('policy cleared');
+          } catch (error) { setStatus('error: ' + error.message, true); }
+        })
+      ];
+    }));
+    var select = $('#policy-form').elements.agent;
+    var agents = group.members.filter(function (member) { return member.type === 'agent'; });
+    fillOptions(select, agents, select.value);
+  }
+
+  function renderPermissions() {
+    var container = $('#permissions-table');
+    container.replaceChildren();
+    var group = state.group;
+    state.permissionIds.forEach(function (permission) {
+      var groups = group.permissions[permission] || [];
+      var input = el('input', { value: groups.join(','), size: 40 });
+      var save = button('save', async function () {
+        try {
+          await api('/api/permissions', { method: 'PUT', body: { group: group.id, permission: permission, groups: splitList(input.value) } });
+          await load(true);
+          setStatus('permission saved');
+        } catch (error) { setStatus('error: ' + error.message, true); }
+      });
+      container.append(el('div', { class: 'row', style: 'margin-bottom:6px;' }, [
+        el('span', { class: 'muted', text: permission, style: 'width:230px;' }),
+        input,
+        save
+      ]));
+    });
+  }
+
+  function renderAgents() {
+    var group = state.group;
+    var agents = group.agents;
+    var list = $('#agent-list');
+    list.replaceChildren();
+    if (!agents.length) {
+      $('#agent-empty').hidden = false;
+      $('#agent-config').hidden = true;
+      return;
+    }
+    $('#agent-empty').hidden = true;
+    if (!agents.some(function (agent) { return agent.id === selectedAgent; })) selectedAgent = agents[0].id;
+    agents.forEach(function (agent) {
+      var item = button(agent.id, function () { selectedAgent = agent.id; renderAgents(); fillAgentForm(); });
+      if (agent.id === selectedAgent) item.className = 'active';
+      list.append(item);
+    });
+    $('#agent-config').hidden = false;
+    renderAgentSummary();
+  }
+
+  function currentAgent() {
+    if (!state.group) return undefined;
+    return state.group.agents.find(function (agent) { return agent.id === selectedAgent; });
+  }
+
+  function renderAgentSummary() {
+    var agent = currentAgent();
+    if (!agent) return;
+    $('#agent-title').textContent = 'Agent ' + agent.id;
+    var summary = $('#agent-summary');
+    summary.replaceChildren();
+    var resolved = agent.resolved || {};
+    if (resolved.error) {
+      summary.append(el('span', { class: 'k', text: 'config' }));
+      summary.append(el('span', { class: 'error-text', text: resolved.error }));
+    } else {
+      var rows = [
+        ['model', resolved.model ? resolved.model.format + ' ' + (resolved.model.model || '(unset)') : '(unset)'],
+        ['baseurl', resolved.model ? (resolved.model.baseurl || '(unset)') : '(unset)'],
+        ['tools', resolved.tools && resolved.tools.length ? resolved.tools.join(', ') : '(system only)'],
+        ['working_directory', resolved.workingDirectory || ''],
+        ['file_permission', formatPermission(resolved.filePermission)]
+      ];
+      rows.forEach(function (row) {
+        summary.append(el('span', { class: 'k', text: row[0] }));
+        summary.append(el('span', { text: row[1] }));
+      });
+    }
+    renderTools(agent);
+  }
+
+  function renderTools(agent) {
+    var container = $('#agent-tools');
+    container.replaceChildren();
+    var resolved = agent.resolved || {};
+    var enabled = resolved.tools || (agent.overrides && agent.overrides.tools) || [];
+    state.businessTools.forEach(function (tool) {
+      var input = el('input', { type: 'checkbox', value: tool });
+      input.checked = enabled.indexOf(tool) >= 0;
+      container.append(el('label', { class: 'inline' }, [input, el('span', { text: tool })]));
+    });
+  }
+
+  function fillAgentForm() {
+    var agent = currentAgent();
+    if (!agent) return;
+    var overrides = agent.overrides || {};
+    fillConfigFields($('#agent-config'), overrides.model, overrides.working_directory, overrides.file_permission);
+    renderTools(agent);
+  }
+
+  function renderTasks() {
+    var group = state.group;
+    renderTable($('#tasks-table'), ['task', 'tooltype', 'status', 'visibility', 'publisher', 'created', ''], group.tasks.map(function (task) {
+      return [
+        task.taskId,
+        task.tooltype,
+        task.status,
+        task.visibility,
+        task.publisherId,
+        task.createdAt,
+        button('detail', async function () {
+          try {
+            var detail = await api('/api/task?group=' + encodeURIComponent(group.id) + '&id=' + encodeURIComponent(task.taskId));
+            $('#task-detail').textContent = JSON.stringify(detail, null, 2);
+            setStatus('task loaded');
+          } catch (error) { setStatus('error: ' + error.message, true); }
+        })
+      ];
+    }));
+  }
+
+  function renderMessages() {
+    var group = state.group;
+    renderTable($('#messages-table'), ['id', 'sender', 'kind', 'text'], group.messages.map(function (message) {
+      return [String(message.id), message.sender_id, message.kind, shorten(message.text, 240)];
+    }));
+  }
+
+  function renderSearch(messages) {
+    renderTable($('#search-results'), ['id', 'sender', 'kind', 'text'], messages.map(function (message) {
+      return [String(message.id), message.sender_id, message.kind, shorten(message.text, 240)];
+    }));
+  }
+
+  async function runSearch(cursor) {
+    if (!state.group) return;
+    try {
+      var form = formData($('#search-form'));
+      var params = new URLSearchParams({ group: state.group.id, q: form.q });
+      if (form.since) params.set('since', form.since);
+      if (form.until) params.set('until', form.until);
+      if (form.limit) params.set('limit', form.limit);
+      if (cursor !== undefined && cursor !== null) params.set('cursor', String(cursor));
+      var page = await api('/api/search?' + params.toString());
+      searchNext = page.nextCursor;
+      renderSearch(page.messages);
+      $('#search-next').hidden = page.nextCursor === null;
+      setStatus(page.messages.length + ' match(es)');
+    } catch (error) { setStatus('error: ' + error.message, true); }
+  }
+
+  function wireStatic() {
+    if (wired) return;
+    wired = true;
+    $('#token-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var value = $('#token-input').value.trim();
+      if (!value) return;
+      token = value;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      hideTokenGate();
+      load(true);
+    });
+    $('#refresh').addEventListener('click', function () { load(false); });
+    $('#reload-config').addEventListener('click', async function () {
+      try { await api('/api/reload', { method: 'POST' }); await load(true); setStatus('config reloaded'); }
+      catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $$('#tabs button').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        activeTab = tab.dataset.tab;
+        $$('#tabs button').forEach(function (other) { other.classList.toggle('active', other === tab); });
+        $$('[data-panel]').forEach(function (panel) { panel.hidden = panel.dataset.panel !== activeTab; });
+      });
+    });
+    $('#create-group').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/groups', { method: 'POST', body: { id: data.id.trim(), name: data.name.trim() || undefined } });
+        selectedGroup = data.id.trim();
+        localStorage.setItem('gh_group', selectedGroup);
+        event.currentTarget.reset();
+        await load(true);
+        setStatus('group created');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#group-config').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      try {
+        var patch = buildConfigPatch(formData(event.currentTarget));
+        await api('/api/group-config', { method: 'PUT', body: { group: state.group.id, patch: patch } });
+        await load(true);
+        setStatus('group config saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#admins-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/admins', { method: 'PUT', body: { group: state.group.id, admins: splitList(data.admins) } });
+        await load(true);
+        setStatus('admins saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#add-member').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/members', { method: 'POST', body: { group: state.group.id, id: data.id.trim(), type: data.type } });
+        event.currentTarget.reset();
+        await load(true);
+        setStatus('member added');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#member-groups').elements.member.addEventListener('change', function (event) { selectMember(event.target.value); });
+    $('#member-listen').elements.member.addEventListener('change', function (event) { selectListenMember(event.target.value); });
+    $('#member-groups').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/identity-groups', { method: 'PUT', body: { group: state.group.id, member: data.member, groups: splitList(data.groups) } });
+        await load(true);
+        setStatus('identity groups saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#member-listen').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/listen', {
+          method: 'PUT',
+          body: {
+            group: state.group.id,
+            member: data.member,
+            listen: { mode: data.mode, senders: splitList(data.senders), kinds: splitList(data.kinds) }
+          }
+        });
+        await load(true);
+        setStatus('listen saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#policy-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var data = formData(event.currentTarget);
+      try {
+        await api('/api/policies', {
+          method: 'POST',
+          body: {
+            group: state.group.id,
+            agent: data.agent,
+            trigger_mode: data.trigger_mode,
+            sender_type: data.sender_type,
+            context_before: Number(data.context_before || 0)
+          }
+        });
+        await load(true);
+        setStatus('policy added');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#agent-config').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      try {
+        var patch = buildConfigPatch(formData(event.currentTarget));
+        patch.tools = $$('#agent-tools input:checked').map(function (input) { return input.value; });
+        await api('/api/agent-config', { method: 'PUT', body: { group: state.group.id, agent: selectedAgent, patch: patch } });
+        await load(true);
+        setStatus('agent config saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#search-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      runSearch(undefined);
+    });
+    $('#search-next').addEventListener('click', function () { runSearch(searchNext); });
+  }
+
+  function boot() {
+    var params = new URLSearchParams(location.search);
+    var queryToken = params.get('token');
+    if (queryToken) {
+      token = queryToken;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      history.replaceState(null, '', location.pathname);
+    } else {
+      token = sessionStorage.getItem(TOKEN_KEY) || '';
+    }
+    wireStatic();
+    if (!token) {
+      showTokenGate();
+      return;
+    }
+    hideTokenGate();
+    load(true);
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

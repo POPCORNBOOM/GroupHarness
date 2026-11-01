@@ -10,6 +10,7 @@ import {
   loadGlobalConfig,
   type GlobalConfig,
 } from './config';
+import { AdminWeb } from './admin-web';
 import { Group } from './group';
 import { GroupAdmin } from './group-admin';
 import { ImServer } from './im';
@@ -23,6 +24,8 @@ export interface HarnessOptions {
   runtime?: boolean;
   /** Start the local mock IM server. */
   im?: boolean;
+  /** Serve the web administration console on the mock IM port. */
+  webAdmin?: boolean;
   /** Send the startup `system_restart` notification. */
   deliverRestart?: boolean;
   /** Test seam; production uses {@link LlmClient}. */
@@ -42,6 +45,8 @@ export class Harness {
   private readonly groups = new Map<string, Group>();
   private readonly admins = new Map<string, GroupAdmin>();
   private imServer?: ImServer;
+  private web?: AdminWeb;
+  private adminUrlValue?: string;
   private closed = false;
 
   private constructor(
@@ -114,14 +119,19 @@ export class Harness {
       harness.admins.set(group.id, new GroupAdmin(group, harness.audit));
     }
 
-    if (options.im === true) {
+    if (options.webAdmin === true) harness.web = new AdminWeb(harness);
+    const needsServer = options.im === true || harness.web !== undefined;
+    if (needsServer) {
+      const web = harness.web;
       const server = new ImServer({
         host: global.im.host,
         port: global.im.port,
         groups: () => [...harness.groups.values()],
+        ...(web === undefined ? {} : { httpHandler: (request, response) => web.handle(request, response) }),
       });
       await server.start();
       harness.imServer = server;
+      if (web !== undefined) harness.adminUrlValue = web.url(server.port);
     }
 
     if (runtime) {
@@ -138,6 +148,11 @@ export class Harness {
 
   get imPort(): number | undefined {
     return this.imServer?.port;
+  }
+
+  /** Tokenized local admin URL; undefined unless `webAdmin` was requested. */
+  get adminUrl(): string | undefined {
+    return this.adminUrlValue;
   }
 
   globalConfig(): GlobalConfig {
@@ -165,12 +180,12 @@ export class Harness {
   }
 
   /** Create a group directory + empty meta.toml and open it; failures are audited. */
-  createGroup(id: string, name?: string): Group {
+  createGroup(id: string, name?: string, actor = 'tui'): Group {
     try {
-      return this.createGroupInternal(id, name);
+      return this.createGroupInternal(id, name, actor);
     } catch (error) {
       this.audit.record({
-        actor: 'tui',
+        actor,
         group_id: id,
         action: 'group_create',
         target: id,
@@ -183,7 +198,7 @@ export class Harness {
     }
   }
 
-  private createGroupInternal(id: string, name?: string): Group {
+  private createGroupInternal(id: string, name?: string, actor = 'tui'): Group {
     if (!GROUP_ID_PATTERN.test(id)) {
       throw new Error('group id must start with a letter or digit and contain only A-Z a-z 0-9 . _ -');
     }
@@ -205,7 +220,7 @@ export class Harness {
     this.groups.set(id, group);
     this.admins.set(id, new GroupAdmin(group, this.audit));
     this.audit.record({
-      actor: 'tui',
+      actor,
       group_id: id,
       action: 'group_create',
       target: id,

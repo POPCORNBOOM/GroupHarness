@@ -3,6 +3,7 @@
  * channel exists even while its socket is offline, so deliveries are held in a
  * small outbox and flushed on the next hello instead of blocking startup.
  */
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Group, UserTransport } from './group';
 import type { StoredMessage } from './storage';
@@ -102,38 +103,85 @@ export interface ImServerOptions {
   host: string;
   port: number;
   groups: () => Group[];
+  /** Optional HTTP handler served from the same port as the mock IM. */
+  httpHandler?: (request: IncomingMessage, response: ServerResponse) => void;
+}
+
+function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 export class ImServer {
   private server?: WebSocketServer;
+  private httpServer?: Server;
   private readonly channels = new Map<string, UserChannel>();
   private readonly sockets = new Set<WebSocket>();
 
   constructor(private readonly options: ImServerOptions) {}
 
   get port(): number {
-    const address = this.server?.address();
+    const address = this.httpServer?.address();
     return typeof address === 'object' && address !== null ? address.port : this.options.port;
   }
 
   async start(): Promise<void> {
-    const server = new WebSocketServer({
-      host: this.options.host,
-      port: this.options.port,
-      maxPayload: 1024 * 1024,
+    const httpServer = createServer((request, response) => {
+      const handler = this.options.httpHandler;
+      if (handler === undefined) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('not found');
+        return;
+      }
+      try {
+        handler(request, response);
+      } catch (error) {
+        console.error(`http: request failed: ${(error as Error).message}`);
+        if (!response.headersSent) {
+          response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+          response.end('internal error');
+        } else {
+          response.destroy();
+        }
+      }
     });
+    const server = new WebSocketServer({ server: httpServer, maxPayload: 1024 * 1024 });
     try {
       await new Promise<void>((resolve, reject) => {
-        server.once('listening', () => resolve());
-        server.once('error', (error) => reject(error));
+        const onHttpError = (error: Error): void => {
+          httpServer.off('listening', onListening);
+          reject(error);
+        };
+        const onWsError = (error: Error): void => reject(error);
+        const onListening = (): void => {
+          httpServer.off('error', onHttpError);
+          server.off('error', onWsError);
+          resolve();
+        };
+        httpServer.once('error', onHttpError);
+        server.once('error', onWsError);
+        httpServer.once('listening', onListening);
+        httpServer.listen(this.options.port, this.options.host);
       });
     } catch (error) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      try {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      } catch {
+        // The WebSocket server may not have reached the listening state.
+      }
+      await closeHttpServer(httpServer);
+      if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        throw new Error(
+          `mock IM port ${this.options.port} is already in use; stop the other Group Harness process or change [im].port`,
+        );
+      }
       throw error;
     }
     server.on('connection', (socket) => this.handleConnection(socket));
     server.on('error', (error) => console.error(`im: server error: ${error.message}`));
+    httpServer.on('error', (error) => console.error(`http: server error: ${error.message}`));
     this.server = server;
+    this.httpServer = httpServer;
     for (const group of this.options.groups()) this.registerGroup(group);
   }
 
@@ -150,9 +198,16 @@ export class ImServer {
     this.sockets.clear();
     this.channels.clear();
     const server = this.server;
+    const httpServer = this.httpServer;
     this.server = undefined;
-    if (server === undefined) return;
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    this.httpServer = undefined;
+    if (server !== undefined) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    if (httpServer !== undefined) {
+      httpServer.closeIdleConnections();
+      await closeHttpServer(httpServer);
+    }
   }
 
   private channelKey(groupId: string, userId: string): string {

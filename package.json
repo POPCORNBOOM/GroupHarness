@@ -13,7 +13,8 @@
     "demo": "tsx scripts/demo.ts",
     "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "test": "tsx --test test/*.test.ts",
-    "gh": "tsx src/main.ts"
+    "gh": "tsx src/main.ts",
+    "web": "tsx src/main.ts web"
   },
   "dependencies": {
     "ink": "^6.4.0",
