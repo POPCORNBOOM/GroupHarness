@@ -40,7 +40,7 @@ import {
   type PermissionId,
   type PermissionState,
 } from './permissions';
-import { injectableText, type PromptMember } from './prompts';
+import { injectableText, PROMPTS, type PromptMember } from './prompts';
 import {
   GroupStore,
   type MessageContent,
@@ -340,16 +340,19 @@ export class Group {
       timestamp: now,
       text,
     };
-    const agents: string[] = [];
-    const messageId = this.store.withTransaction(() => {
-      const id = this.store.insertMessage({ sender_id: SYSTEM_MEMBER, kind: 'system_restart', content, created_at: now });
-      for (const member of this.members.values()) {
-        if (member.type !== 'agent') continue;
-        this.store.enqueue(member.id, 'system_restart', { kind: 'system_restart' }, now);
-        agents.push(member.id);
-      }
-      return id;
+    const messageId = this.store.insertMessage({
+      sender_id: SYSTEM_MEMBER,
+      kind: 'system_restart',
+      content,
+      created_at: now,
     });
+    // Queue-and-wake would make every agent spend a model call on startup even
+    // when there is no pending work. A context note is enough; the next wake
+    // (or a pending event) sees it.
+    for (const member of this.members.values()) {
+      if (member.type !== 'agent') continue;
+      this.agents.get(member.id)?.injectContext(PROMPTS.restart());
+    }
     const stored = this.store.getMessage(messageId);
     if (stored !== undefined) {
       for (const member of this.members.values()) {
@@ -361,7 +364,6 @@ export class Group {
         }
       }
     }
-    for (const agentId of agents) this.kick(agentId);
   }
 
   attachTransport(userId: string, transport: UserTransport): void {

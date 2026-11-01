@@ -115,6 +115,8 @@ function estimateTokens(messages: ChatMessage[]): number {
 
 export class AgentRuntime {
   private context: ChatMessage[] = [];
+  private pendingContext: string[] = [];
+  private contextLoaded = false;
   private running = false;
   private again = false;
   private stopped = false;
@@ -128,7 +130,18 @@ export class AgentRuntime {
   /** Restore the persisted context and start consuming the queue. */
   start(): void {
     this.loadContext();
+    this.contextLoaded = true;
+    for (const text of this.pendingContext.splice(0)) {
+      this.record({ role: 'user', content: text });
+    }
     this.kick();
+  }
+
+  /** Add a model-facing note without waking the loop. */
+  injectContext(text: string): void {
+    if (this.stopped) return;
+    if (this.contextLoaded) this.record({ role: 'user', content: text });
+    else this.pendingContext.push(text);
   }
 
   /** Ask the consumer to run; it serializes work per agent. */
