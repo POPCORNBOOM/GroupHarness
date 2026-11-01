@@ -45,7 +45,7 @@ test('mention, sender type, self-exclusion, and one queue item per agent', async
   await harness.close();
 });
 
-test('user listen filters route group messages and restart bypasses them', async () => {
+test('user listen filters route group messages', async () => {
   const root = makeRoot();
   const meta = demoMeta();
   meta.members.push({ id: 'carol', type: 'user' });
@@ -72,11 +72,6 @@ test('user listen filters route group messages and restart bypasses them', async
   assert.equal(carol.messages.length, 2);
   assert.equal(dave.messages.length, 1, 'whitelist only accepts agent messages');
 
-  group.deliverRestart();
-  assert.equal(alice.messages.length, 1, 'restart bypasses listen filters');
-  assert.equal(carol.messages.length, 3);
-  assert.equal(dave.messages.length, 2);
-  assert.equal(group.latestMessages(1)[0]?.kind, 'system_restart');
   await harness.close();
 });
 

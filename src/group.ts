@@ -40,7 +40,7 @@ import {
   type PermissionId,
   type PermissionState,
 } from './permissions';
-import { injectableText, PROMPTS, type PromptMember } from './prompts';
+import { injectableText, type PromptMember } from './prompts';
 import {
   GroupStore,
   type MessageContent,
@@ -390,45 +390,6 @@ export class Group {
     return { members, groups, ttlMs, deadline: Date.now() + ttlMs };
   }
 
-  /** Internal system notification used on startup; bypasses listen filters. */
-  deliverRestart(): void {
-    if (this.closed) return;
-    const now = new Date().toISOString();
-    const text = 'Group Harness restarted.';
-    const content: MessageContent = {
-      kind: 'system_restart',
-      sender_id: SYSTEM_MEMBER,
-      source: 'system',
-      task_id: null,
-      timestamp: now,
-      text,
-    };
-    const messageId = this.store.insertMessage({
-      sender_id: SYSTEM_MEMBER,
-      kind: 'system_restart',
-      content,
-      created_at: now,
-    });
-    // Queue-and-wake would make every agent spend a model call on startup even
-    // when there is no pending work. A context note is enough; the next wake
-    // (or a pending event) sees it.
-    for (const member of this.members.values()) {
-      if (member.type !== 'agent') continue;
-      this.agents.get(member.id)?.injectContext(PROMPTS.restart());
-    }
-    const stored = this.store.getMessage(messageId);
-    if (stored !== undefined) {
-      for (const member of this.members.values()) {
-        if (member.type !== 'user') continue;
-        try {
-          this.transports.get(member.id)?.sendMessage(stored);
-        } catch (error) {
-          console.error(`[${this.id}] restart delivery to ${member.id} failed: ${(error as Error).message}`);
-        }
-      }
-    }
-  }
-
   attachTransport(userId: string, transport: UserTransport): void {
     if (this.members.get(userId)?.type !== 'user') throw new Error(`member "${userId}" is not a user`);
     this.transports.set(userId, transport);
@@ -715,7 +676,6 @@ export class Group {
   private listenMatches(member: MemberMeta, message: StoredMessage): boolean {
     if (message.sender_id === member.id) return false;
     if (message.sender_id === SYSTEM_MEMBER) return false;
-    if (message.kind === 'system_restart') return false;
     const listen = member.listen;
     if (listen === undefined || listen.mode === 'all') return true;
     const senderHit = listen.senders.includes(message.sender_id);

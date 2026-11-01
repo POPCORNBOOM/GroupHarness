@@ -17,7 +17,7 @@ user ──WebSocket──> ImServer ──> group.send() ──> messages.db
 异步工具 ──> tasks.db ──> 独立结果通道 ──> agent: queue(task_result) / user: transport(task_result)
 ```
 
-- **聊天流**：`messages.db`，只存 `user_message` / `agent_message` / `system_restart`。
+- **聊天流**：`messages.db`，只存 `user_message` / `agent_message`。
 - **任务流**：`tasks.db`，状态机 `pending → running → done | failed`，失败不自动重试。
 - **queue**：`queue.db`，只服务 agent；一次消费合并当前全部 pending，事务内批量置 processing。
 - **审计**：`.groupharness/audit.jsonl`，单写者队列，凭据自动脱敏。

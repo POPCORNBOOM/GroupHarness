@@ -175,35 +175,3 @@ test('an agent added at runtime starts consuming immediately', async () => {
   );
   await harness.close();
 });
-
-test('pending wake sees the injected restart note before old work', async () => {
-  const root = makeRoot();
-  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
-  const control = await Harness.open({ rootDir: root, runtime: false, im: false });
-  control.requireGroup('demo').send('alice', '@bob old pending', 'user_message', 'test');
-  await control.close();
-
-  const llm = new ScriptedLlm(() => textCompletion('idle'));
-  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, deliverRestart: true, llm });
-  await harness.waitIdle(5_000);
-  const users = llm.requests[0]!.messages.filter((message) => message.role === 'user');
-  const restartIndex = users.findIndex((message) => message.content.includes('[系统重启]'));
-  const pendingIndex = users.findIndex((message) => message.content.includes('old pending'));
-  assert.ok(restartIndex >= 0);
-  assert.ok(pendingIndex > restartIndex, 'the restart note stays before the pending wake');
-  await harness.close();
-});
-
-test('startup restart only injects context and does not wake the model', async () => {
-  const root = makeRoot();
-  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
-  const llm = new ScriptedLlm(() => textCompletion('idle'));
-  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, deliverRestart: true, llm });
-  await harness.waitIdle(5_000);
-  const group = harness.requireGroup('demo');
-  assert.equal(group.latestMessages(1)[0]?.kind, 'system_restart');
-  assert.equal(llm.requests.length, 0);
-  const lines = readFileSync(root + CONTEXT, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-  assert.ok(lines.some((message) => message.role === 'user' && message.content.includes('[系统重启]')));
-  await harness.close();
-});

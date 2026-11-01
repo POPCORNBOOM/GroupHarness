@@ -56,7 +56,7 @@ saveAgentConfigLayer(join(groupDir, 'agents', 'bob', 'config.toml'), {
   tools: ['read_file', 'run_command_async'],
 });
 
-const harness = await Harness.open({ rootDir: demoRoot, runtime: true, im: true, deliverRestart: false });
+const harness = await Harness.open({ rootDir: demoRoot, runtime: true, im: true });
 console.log('group harness demo');
 console.log('  project:', demoRoot);
 console.log('  im: ws://127.0.0.1:' + String(harness.imPort));
