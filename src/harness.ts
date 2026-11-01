@@ -35,6 +35,8 @@ export interface HarnessOptions {
   im?: boolean;
   /** Serve the web administration console on the mock IM port. */
   webAdmin?: boolean;
+  /** Send the startup `system_restart` notification. */
+  deliverRestart?: boolean;
   /** Test seam; production uses {@link LlmClient}. */
   llm?: LlmLike;
 }
@@ -267,6 +269,9 @@ export class Harness {
 
     if (runtime) {
       for (const group of harness.groups.values()) group.recoverInterruptedTasks();
+    }
+    if (options.deliverRestart === true) {
+      for (const group of harness.groups.values()) group.deliverRestart();
     }
     if (runtime) {
       for (const group of harness.groups.values()) group.startAgents();

@@ -371,6 +371,48 @@ export class Group {
     };
   }
 
+  /** Internal system notification used on startup; bypasses listen filters. */
+  deliverRestart(): void {
+    if (this.closed) return;
+    const now = new Date().toISOString();
+    const text = 'Group Harness restarted.';
+    const content: MessageContent = {
+      kind: 'system_restart',
+      sender_id: SYSTEM_MEMBER,
+      source: 'system',
+      task_id: null,
+      timestamp: now,
+      text,
+    };
+    const agents: string[] = [];
+    const messageId = this.store.withTransaction(() => {
+      const id = this.store.insertMessage({
+        sender_id: SYSTEM_MEMBER,
+        kind: 'system_restart',
+        content,
+        created_at: now,
+      });
+      for (const member of this.members.values()) {
+        if (member.type !== 'agent') continue;
+        this.store.enqueue(member.id, 'system_restart', { kind: 'system_restart' }, now);
+        agents.push(member.id);
+      }
+      return id;
+    });
+    const stored = this.store.getMessage(messageId);
+    if (stored !== undefined) {
+      for (const member of this.members.values()) {
+        if (member.type !== 'user') continue;
+        try {
+          this.transports.get(member.id)?.sendMessage(stored);
+        } catch (error) {
+          console.error(`[${this.id}] restart delivery to ${member.id} failed: ${(error as Error).message}`);
+        }
+      }
+    }
+    for (const agentId of agents) this.kick(agentId);
+  }
+
   private buildAttention(agentId: string, input: AttentionInput): AttentionGrant | null {
     const members = [...new Set(input.members ?? [])];
     const groups = [...new Set(input.groups ?? [])];
@@ -676,6 +718,7 @@ export class Group {
   private listenMatches(member: MemberMeta, message: StoredMessage): boolean {
     if (message.sender_id === member.id) return false;
     if (message.sender_id === SYSTEM_MEMBER) return false;
+    if (message.kind === 'system_restart') return false;
     const listen = member.listen;
     if (listen === undefined || listen.mode === 'all') return true;
     const senderHit = listen.senders.includes(message.sender_id);

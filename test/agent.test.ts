@@ -175,3 +175,33 @@ test('an agent added at runtime starts consuming immediately', async () => {
   );
   await harness.close();
 });
+
+
+test('pending events are consumed before the startup restart', async () => {
+  const root = makeRoot();
+  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
+  const control = await Harness.open({ rootDir: root, runtime: false, im: false });
+  control.requireGroup('demo').send('alice', '@bob old pending', 'user_message', 'test');
+  await control.close();
+
+  const llm = new ScriptedLlm(() => textCompletion('idle'));
+  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, deliverRestart: true, llm });
+  await harness.waitIdle(5_000);
+  const text = lastUserText(llm.requests[0]!);
+  assert.ok(text.includes('old pending'));
+  assert.ok(text.includes('[系统重启]'));
+  assert.ok(text.indexOf('old pending') < text.indexOf('[系统重启]'), 'old work is rendered before the restart');
+  await harness.close();
+});
+
+test('startup injects system_restart after loading pending work without resetting context', async () => {
+  const root = makeRoot();
+  writeFixture(root, { meta: demoMeta(), agentLayers: { bob: { tools: [] } } });
+  const llm = new ScriptedLlm(() => textCompletion('idle'));
+  const harness = await Harness.open({ rootDir: root, runtime: true, im: false, deliverRestart: true, llm });
+  await harness.waitIdle(5_000);
+  const group = harness.requireGroup('demo');
+  assert.equal(group.latestMessages(1)[0]?.kind, 'system_restart');
+  assert.ok(lastUserText(llm.requests[0]!).includes('[系统重启]'));
+  await harness.close();
+});

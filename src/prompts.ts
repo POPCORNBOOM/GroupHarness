@@ -138,11 +138,14 @@ ${input.truncated ? '\nEarlier turns were truncated to keep the context within i
     ].join('\n');
   },
 
+  restart: (): string =>
+    `[系统重启]
+The harness restarted. Your context was restored; events that were pending before the restart are delivered with this wake-up.`,
 };
 
 /** Render a message for the history section; unknown kinds are never injected. */
 export function injectableText(line: HistoryLine): string | undefined {
-  if (line.kind === 'user_message' || line.kind === 'agent_message') {
+  if (line.kind === 'user_message' || line.kind === 'agent_message' || line.kind === 'system_restart') {
     return line.text;
   }
   return undefined;

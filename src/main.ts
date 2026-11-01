@@ -85,6 +85,7 @@ async function main(): Promise<void> {
     runtime: interactive,
     im: interactive,
     webAdmin: web,
+    deliverRestart: interactive,
   });
   try {
     if (web) {

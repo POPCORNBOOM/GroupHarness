@@ -98,6 +98,7 @@ function renderPayload(item: QueueItem, index: number, total: number): string {
       ...(result.error === null || result.error === undefined ? {} : { error: result.error }),
     });
   }
+  if (kind === 'system_restart') return PROMPTS.restart();
   return `[未知事件] ${JSON.stringify(payload ?? item.kind)}`;
 }
 
