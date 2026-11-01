@@ -49,7 +49,7 @@ test('an agent wakes on a mention, calls tools, replies, and persists context ac
   assert.equal(llm.requests.length, 2);
   const first = llm.requests[0]!;
   assert.match(first.system, /"bob"/);
-  assert.match(lastUserText(first), /收到新消息，请查阅聊天记录/);
+  assert.match(lastUserText(first), /New messages\. Review the chat history\./);
   assert.match(lastUserText(first), /@bob hello/);
   const toolResult = llm.requests[1]!.messages.find((message) => message.role === 'tool');
   assert.ok(toolResult !== undefined);
@@ -114,7 +114,7 @@ test('async tools create a task and deliver its result through the separate chan
   meta.members.push({ id: 'carol', type: 'user' });
   writeFixture(root, { meta, agentLayers: { bob: { tools: ['run_command_async'], working_directory: 'work' } } });
   const llm = new ScriptedLlm((request) => {
-    if (lastUserText(request).includes('[任务结果]')) {
+    if (lastUserText(request).includes('named you as one of its result recipients')) {
       if (request.messages.some((message) => message.role === 'tool' && message.content.includes('message_id'))) {
         return textCompletion('done');
       }
@@ -192,8 +192,8 @@ test('pending events are consumed before the startup restart', async () => {
     .map((message) => message.content)
     .join('\n\n');
   assert.ok(text.includes('old pending'));
-  assert.ok(text.includes('[系统重启]'));
-  assert.ok(text.indexOf('old pending') < text.indexOf('[系统重启]'), 'old work is rendered before the restart');
+  assert.ok(text.includes('The harness restarted.'));
+  assert.ok(text.indexOf('old pending') < text.indexOf('The harness restarted.'), 'old work is rendered before the restart');
   await harness.close();
 });
 
@@ -205,6 +205,6 @@ test('startup injects system_restart after loading pending work without resettin
   await harness.waitIdle(5_000);
   const group = harness.requireGroup('demo');
   assert.equal(group.latestMessages(1)[0]?.kind, 'system_restart');
-  assert.ok(lastUserText(llm.requests[0]!).includes('[系统重启]'));
+  assert.ok(lastUserText(llm.requests[0]!).includes('The harness restarted.'));
   await harness.close();
 });

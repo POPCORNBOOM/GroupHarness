@@ -396,7 +396,7 @@ function makeRunCommand(async: boolean): ToolDefinition {
   return {
     name: async ? 'run_command_async' : 'run_command',
     description: async
-      ? 'Start a shell command in the background and return a task id immediately. The result arrives later as a [任务结果] event. listeners also receive it; visibility defaults to private.'
+      ? 'Start a shell command in the background and return a task id immediately. The result arrives later as a task result event. listeners also receive it; visibility defaults to private.'
       : 'Run a shell command in the working directory and wait for it. Returns exit_code, stdout, stderr.',
     async,
     timeoutMs: timeoutMax + 5_000,

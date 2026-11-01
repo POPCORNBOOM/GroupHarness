@@ -98,7 +98,7 @@ const chatTranslator: QueueTranslator = {
         });
         return {
           id: Math.min(...range.itemIds),
-          content: ['收到新消息，请查阅聊天记录', ...body].join('\n'),
+          content: ['New messages. Review the chat history.', ...body].join('\n'),
         };
       })
       .filter((block): block is RenderedBlock => block !== undefined);
@@ -168,7 +168,7 @@ export class QueueRenderer {
         for (const item of group) {
           blocks.push({
             id: item.id,
-            content: `[未知事件] ${JSON.stringify(item.payload ?? item.kind)}`,
+            content: `Unknown event: ${JSON.stringify(item.payload ?? item.kind)}`,
           });
         }
         continue;

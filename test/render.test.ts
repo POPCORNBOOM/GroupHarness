@@ -41,7 +41,7 @@ test('chat blocks merge adjacent histories, split gaps, and mark triggers', () =
   assert.equal(messages.length, 2);
   assert.equal(messages[0]!.content, [
     `Round #${roundHash(items)}`,
-    '收到新消息，请查阅聊天记录',
+    'New messages. Review the chat history.',
     '<msg20 sender="alice">服务又挂了</msg20>',
     '<msg21 sender="bob">我看看日志</msg21>',
     '<msg22 sender="alice">@bob 日志在 /tmp/app.log</msg22>',
@@ -51,7 +51,7 @@ test('chat blocks merge adjacent histories, split gaps, and mark triggers', () =
   ].join('\n'));
   assert.equal(messages[1]!.content, [
     `Round #${roundHash(items)}`,
-    '收到新消息，请查阅聊天记录',
+    'New messages. Review the chat history.',
     '<msg29 important sender="carol">@bob 另一个话题</msg29>',
   ].join('\n'));
 });
@@ -79,9 +79,9 @@ test('mixed kinds keep id order and share one round hash', () => {
   assert.deepEqual(messages.map((message) => message.role), Array(5).fill('user'));
   assert.ok(messages.every((message) => message.content.startsWith(hash + '\n')));
   assert.match(messages[0]!.content, /<msg24 important sender="alice">@bob 看这个<\/msg24>/);
-  assert.match(messages[1]!.content, /^[\s\S]*\[任务结果\]\ntask_id: task-8d1/);
-  assert.match(messages[2]!.content, /\[系统重启\]/);
-  assert.match(messages[3]!.content, /\[未知事件\] \{"probe":true\}/);
+  assert.match(messages[1]!.content, /A background task of type run_command_async, published by bob \(task id: task-8d1\), named you as one of its result recipients\. The task status is done\. The result is:/);
+  assert.match(messages[2]!.content, /The harness restarted\./);
+  assert.match(messages[3]!.content, /Unknown event: \{"probe":true\}/);
   assert.match(messages[4]!.content, /<msg29 important sender="carol">@bob 另一个<\/msg29>/);
 });
 

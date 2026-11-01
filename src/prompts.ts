@@ -71,9 +71,9 @@ const renderJson = (value: unknown): string => {
   }
 };
 
-const BACKGROUND_TASKS = `run_command_async starts a task and returns immediately. Its result later arrives as a [任务结果] event. list_tasks and get_task read task state; a private task is visible only to its publisher, its listeners, and admins.`;
+const BACKGROUND_TASKS = `run_command_async starts a task and returns immediately. Its result later arrives as a task result event. list_tasks and get_task read task state; a private task is visible only to its publisher, its listeners, and admins.`;
 
-const howToAct = (maxToolRounds: number): string => `You are woken by group events. A user message starting with "收到新消息，请查阅聊天记录" is group history, not your private memory.
+const howToAct = (maxToolRounds: number): string => `You are woken by group events. A user message starting with "New messages. Review the chat history." is group history, not your private memory.
 - To speak in the group you MUST call send_message. Text you produce without that tool call is never delivered.
 - Mention a member as @<member_id>.
 - A turn may use several tool calls; the harness stops the loop after ${maxToolRounds} rounds.
@@ -98,22 +98,17 @@ export function systemPrompt(input: SystemPromptInput): string {
 }
 
 export function taskResultPrompt(input: TaskResultPromptInput): string {
-  const body =
-    input.status === 'done'
-      ? `result:\n${renderJson(input.result)}`
-      : `error: ${input.error ?? 'unknown'}`;
-  return [
-    '[任务结果]',
-    `task_id: ${input.taskId}`,
-    `tooltype: ${input.tooltype}`,
-    `status: ${input.status}`,
-    `publisher: ${input.publisherId}`,
-    body,
-  ].join('\n');
+  const intro =
+    `A background task of type ${input.tooltype}, published by ${input.publisherId} (task id: ${input.taskId}), ` +
+    'named you as one of its result recipients. ' +
+    `The task status is ${input.status}.`;
+  if (input.status !== 'done') {
+    return `${intro} Error: ${input.error ?? 'unknown'}`;
+  }
+  return `${intro} The result is:\n${renderJson(input.result)}`;
 }
 
-export const RESTART_PROMPT = `[系统重启]
-The harness restarted. Your context was restored; events that were pending before the restart are delivered with this wake-up.`;
+export const RESTART_PROMPT = `The harness restarted. Your context was restored; events that were pending before the restart are delivered with this wake-up.`;
 
 /** Render a message for the history section; unknown kinds are never injected. */
 export function injectableText(line: HistoryLine): string | undefined {
