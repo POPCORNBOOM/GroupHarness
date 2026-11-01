@@ -13,6 +13,7 @@ import {
   mergeFilePermission,
   mergeModel,
   resolveConfig,
+  saveGlobalConfig,
 } from '../src/config';
 import { canonicalPath, checkPathAccess, PermissionDenied } from '../src/file-permission';
 
@@ -22,6 +23,21 @@ test('initConfigFile creates the parent directory and never overwrites', () => {
   assert.equal(initConfigFile(path, { model: 'm' }), true);
   assert.match(readFileSync(path, 'utf8'), /model = "m"/);
   assert.equal(initConfigFile(path, { model: 'other' }), false);
+});
+
+test('global config loads, validates, and saves the webui theme', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gh-webui-'));
+  const path = join(dir, 'config.toml');
+  writeFileSync(path, defaultConfigText(), 'utf8');
+  const config = loadGlobalConfig(path, dir);
+  assert.deepEqual(config.webui, { accent: '#6ea8fe', background: '#0d0f12', foreground: '#d7dae0' });
+  config.webui = { accent: '#112233', background: '#010203', foreground: '#aabbcc' };
+  saveGlobalConfig(path, config, dir);
+  assert.deepEqual(loadGlobalConfig(path, dir).webui, config.webui);
+  writeFileSync(path, defaultConfigText().replace(/\n\[webui\][\s\S]*$/, ''), 'utf8');
+  assert.deepEqual(loadGlobalConfig(path, dir).webui, { accent: '#6ea8fe', background: '#0d0f12', foreground: '#d7dae0' });
+  writeFileSync(path, defaultConfigText().replace('accent = "#6ea8fe"', 'accent = "red"'), 'utf8');
+  assert.throws(() => loadGlobalConfig(path, dir), /webui.accent must be a #rrggbb color/);
 });
 
 test('model merge inherits empty values and overrides set ones', () => {
@@ -89,6 +105,7 @@ test('agent layer resolves over group over global', () => {
     filePermission: { default: 'inherit' as const, read: ['/global'] },
     workingDirectory: dir,
     im: { host: '127.0.0.1', port: 1 },
+    webui: { accent: '#6ea8fe', background: '#0d0f12', foreground: '#d7dae0' },
   };
   const resolved = resolveConfig(
     global,

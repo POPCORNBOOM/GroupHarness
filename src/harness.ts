@@ -6,9 +6,18 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { AuditLog } from './audit';
 import {
+  ConfigError,
+  ensureWorkingDirectory,
   initConfigFile,
   loadGlobalConfig,
+  maskSecrets,
+  resolveWorkingDirectory,
+  saveGlobalConfig,
+  type FilePermission,
   type GlobalConfig,
+  type ImConfig,
+  type ModelConfig,
+  type WebUiTheme,
 } from './config';
 import { AdminWeb } from './admin-web';
 import { Group } from './group';
@@ -38,7 +47,131 @@ export interface InitSeed {
   baseurl?: string;
 }
 
+export interface SettingsPatch {
+  model?: Partial<ModelConfig>;
+  filePermission?: Partial<FilePermission>;
+  workingDirectory?: string;
+  im?: Partial<ImConfig>;
+  webui?: Partial<WebUiTheme>;
+}
+
 const GROUP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SETTINGS_KEYS = new Set(['model', 'filePermission', 'workingDirectory', 'im', 'webui']);
+const MODEL_KEYS = new Set(['format', 'baseurl', 'apikey', 'model', 'reasoning_effort', 'context_window', 'max_output_tokens']);
+const PERMISSION_KEYS = new Set(['default', 'read', 'write', 'execute', 'deny']);
+const IM_KEYS = new Set(['host', 'port']);
+const THEME_KEYS = new Set(['accent', 'background', 'foreground']);
+
+function settingsObject(path: string, value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ConfigError(path, `${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function pathList(path: string, value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry === '')) {
+    throw new ConfigError(path, `${label} must be an array of non-empty path prefixes`);
+  }
+  return [...value] as string[];
+}
+
+function applyModelPatch(path: string, current: ModelConfig, patch: Partial<ModelConfig> | undefined): ModelConfig {
+  if (patch === undefined) return { ...current };
+  const table = settingsObject(path, patch, 'model');
+  const next = { ...current };
+  for (const [key, value] of Object.entries(table)) {
+    if (!MODEL_KEYS.has(key)) throw new ConfigError(path, `unknown model setting "${key}"`);
+    if (value === undefined) continue;
+    if (key === 'format') {
+      if (value !== 'completion' && value !== 'anthropic') {
+        throw new ConfigError(path, 'model.format must be "completion" or "anthropic"');
+      }
+      next.format = value;
+    } else if (key === 'context_window' || key === 'max_output_tokens') {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        throw new ConfigError(path, `model.${key} must be a positive integer`);
+      }
+      next[key] = value;
+    } else {
+      if (typeof value !== 'string') throw new ConfigError(path, `model.${key} must be a string`);
+      next[key as 'baseurl' | 'apikey' | 'model' | 'reasoning_effort'] = value;
+    }
+  }
+  return next;
+}
+
+function clonePermission(current: FilePermission): FilePermission {
+  return {
+    default: current.default,
+    ...(current.read === undefined ? {} : { read: Array.isArray(current.read) ? [...current.read] : current.read }),
+    ...(current.write === undefined ? {} : { write: Array.isArray(current.write) ? [...current.write] : current.write }),
+    ...(current.execute === undefined ? {} : { execute: Array.isArray(current.execute) ? [...current.execute] : current.execute }),
+    ...(current.deny === undefined ? {} : { deny: [...current.deny] }),
+  };
+}
+
+function applyPermissionPatch(
+  path: string,
+  current: FilePermission,
+  patch: Partial<FilePermission> | undefined,
+): FilePermission {
+  if (patch === undefined) return clonePermission(current);
+  const table = settingsObject(path, patch, 'filePermission');
+  const next = clonePermission(current);
+  for (const [key, value] of Object.entries(table)) {
+    if (!PERMISSION_KEYS.has(key)) throw new ConfigError(path, `unknown filePermission setting "${key}"`);
+    if (value === undefined) continue;
+    if (key === 'default') {
+      if (value !== 'inherit' && value !== 'deny_all') {
+        throw new ConfigError(path, 'filePermission.default must be "inherit" or "deny_all"');
+      }
+      next.default = value;
+    } else if (key === 'deny') {
+      next.deny = pathList(path, value, 'filePermission.deny');
+    } else if (value === 'deny_all') {
+      next[key as 'read' | 'write' | 'execute'] = 'deny_all';
+    } else {
+      next[key as 'read' | 'write' | 'execute'] = pathList(path, value, `filePermission.${key}`);
+    }
+  }
+  return next;
+}
+
+function applyImPatch(path: string, current: ImConfig, patch: Partial<ImConfig> | undefined): ImConfig {
+  if (patch === undefined) return { ...current };
+  const table = settingsObject(path, patch, 'im');
+  const next = { ...current };
+  for (const [key, value] of Object.entries(table)) {
+    if (!IM_KEYS.has(key)) throw new ConfigError(path, `unknown im setting "${key}"`);
+    if (value === undefined) continue;
+    if (key === 'host') {
+      if (typeof value !== 'string' || value.trim() === '') throw new ConfigError(path, 'im.host must be a non-empty string');
+      next.host = value;
+    } else {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 65_535) {
+        throw new ConfigError(path, 'im.port must be an integer between 0 and 65535');
+      }
+      next.port = value;
+    }
+  }
+  return next;
+}
+
+function applyThemePatch(path: string, current: WebUiTheme, patch: Partial<WebUiTheme> | undefined): WebUiTheme {
+  if (patch === undefined) return { ...current };
+  const table = settingsObject(path, patch, 'webui');
+  const next = { ...current };
+  for (const [key, value] of Object.entries(table)) {
+    if (!THEME_KEYS.has(key)) throw new ConfigError(path, `unknown webui setting "${key}"`);
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+      throw new ConfigError(path, `webui.${key} must be a #rrggbb color`);
+    }
+    next[key as keyof WebUiTheme] = value;
+  }
+  return next;
+}
 
 export class Harness {
   private global: GlobalConfig;
@@ -228,6 +361,61 @@ export class Harness {
       ok: true,
     });
     return group;
+  }
+
+  /**
+   * Merge a settings patch into the global config and save it atomically.
+   * Model/permission changes apply on the next agent wake; IM host/port changes
+   * take effect on the next process start. Every attempt is audited.
+   */
+  updateSettings(patch: SettingsPatch, actor = 'tui'): void {
+    const before = maskSecrets(this.global);
+    let next: GlobalConfig;
+    try {
+      if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new ConfigError(this.configPath, 'settings patch must be an object');
+      }
+      for (const key of Object.keys(patch)) {
+        if (!SETTINGS_KEYS.has(key)) throw new ConfigError(this.configPath, `unknown setting "${key}"`);
+      }
+      if (patch.workingDirectory !== undefined && typeof patch.workingDirectory !== 'string') {
+        throw new ConfigError(this.configPath, 'workingDirectory must be a string');
+      }
+      next = {
+        model: applyModelPatch(this.configPath, this.global.model, patch.model),
+        filePermission: applyPermissionPatch(this.configPath, this.global.filePermission, patch.filePermission),
+        workingDirectory:
+          patch.workingDirectory === undefined
+            ? this.global.workingDirectory
+            : resolveWorkingDirectory(this.rootDir, undefined, patch.workingDirectory),
+        im: applyImPatch(this.configPath, this.global.im, patch.im),
+        webui: applyThemePatch(this.configPath, this.global.webui, patch.webui),
+      };
+      ensureWorkingDirectory(next.workingDirectory);
+      saveGlobalConfig(this.configPath, next, this.rootDir);
+    } catch (error) {
+      this.audit.record({
+        actor,
+        group_id: 'global',
+        action: 'set_settings',
+        target: 'global',
+        before,
+        after: maskSecrets(patch),
+        ok: false,
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+    this.global = next;
+    this.audit.record({
+      actor,
+      group_id: 'global',
+      action: 'set_settings',
+      target: 'global',
+      before,
+      after: maskSecrets(next),
+      ok: true,
+    });
   }
 
   /** Re-read global and group config files; takes effect on each next wake-up. */

@@ -8,7 +8,7 @@
  * loop, never mid-loop.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 export type ModelFormat = 'completion' | 'anthropic';
@@ -56,11 +56,18 @@ export interface ImConfig {
   port: number;
 }
 
+export interface WebUiTheme {
+  accent: string;
+  background: string;
+  foreground: string;
+}
+
 export interface GlobalConfig {
   model: ModelConfig;
   filePermission: FilePermission;
   workingDirectory: string;
   im: ImConfig;
+  webui: WebUiTheme;
 }
 
 /** A configuration file failed to parse or validate. Carries the path. */
@@ -85,6 +92,12 @@ const DEFAULT_MODEL: ModelConfig = {
 };
 
 const DEFAULT_FILE_PERMISSION: FilePermission = { default: 'inherit' };
+
+const DEFAULT_WEBUI: WebUiTheme = {
+  accent: '#6ea8fe',
+  background: '#0d0f12',
+  foreground: '#d7dae0',
+};
 
 /** Parse a TOML file; a missing file is an error so misconfiguration is loud. */
 export function readTomlFile(path: string): Record<string, unknown> {
@@ -251,6 +264,20 @@ export function parseConfigLayer(
   return out;
 }
 
+function parseWebUi(path: string, raw: unknown): WebUiTheme {
+  const table = asObject(path, raw, 'webui');
+  assertKnownKeys(path, table, ['accent', 'background', 'foreground'], 'webui.');
+  const read = (key: keyof WebUiTheme): string => {
+    const value = optionalString(path, table[key], `webui.${key}`);
+    if (value === undefined) return DEFAULT_WEBUI[key];
+    if (!/^#[0-9a-fA-F]{6}$/.test(value)) {
+      fail(path, `webui.${key} must be a #rrggbb color`);
+    }
+    return value;
+  };
+  return { accent: read('accent'), background: read('background'), foreground: read('foreground') };
+}
+
 function parseIm(path: string, raw: unknown): ImConfig {
   const table = asObject(path, raw, 'im');
   assertKnownKeys(path, table, ['host', 'port'], 'im.');
@@ -270,12 +297,43 @@ function parseIm(path: string, raw: unknown): ImConfig {
 /** Load `.groupharness/config.toml`. */
 export function loadGlobalConfig(path: string, rootDir: string): GlobalConfig {
   const raw = readTomlFile(path);
-  assertKnownKeys(path, raw, ['model', 'file_permission', 'working_directory', 'im']);
-  const layer = parseConfigLayer(path, raw, ['im']);
+  assertKnownKeys(path, raw, ['model', 'file_permission', 'working_directory', 'im', 'webui']);
+  const layer = parseConfigLayer(path, raw, ['im', 'webui']);
   const model = mergeModel(DEFAULT_MODEL, layer.model);
   const filePermission = mergeFilePermission(DEFAULT_FILE_PERMISSION, layer.file_permission);
   const workingDirectory = resolveWorkingDirectory(rootDir, undefined, layer.working_directory);
-  return { model, filePermission, workingDirectory, im: parseIm(path, raw.im) };
+  return {
+    model,
+    filePermission,
+    workingDirectory,
+    im: parseIm(path, raw.im),
+    webui: parseWebUi(path, raw.webui),
+  };
+}
+
+/** Persist the complete global config, preserving only the header comment. */
+export function saveGlobalConfig(path: string, config: GlobalConfig, rootDir: string): void {
+  // Keep the common case portable: write a project-relative working directory
+  // instead of baking the machine-specific absolute path into config.toml.
+  const workingDirectory = relative(rootDir, config.workingDirectory) || '';
+  const object: Record<string, unknown> = {
+    working_directory: workingDirectory,
+    model: { ...config.model },
+    file_permission: cloneFilePermission(config.filePermission),
+    im: { ...config.im },
+    webui: { ...config.webui },
+  };
+  try {
+    writeFileAtomic(
+      path,
+      '# Group Harness global configuration.\n# The web settings page rewrites this file; only this header is preserved.\n\n' +
+        stringifyToml(object) +
+        '\n',
+    );
+  } catch (error) {
+    if (error instanceof ConfigError) throw error;
+    throw new ConfigError(path, `cannot write: ${(error as Error).message}`);
+  }
 }
 
 /** Merge a child model layer over its parent; empty values inherit. */
@@ -402,6 +460,11 @@ default = "inherit"
 [im]
 host = "127.0.0.1"
 port = 8787
+
+[webui]
+accent = "#6ea8fe"
+background = "#0d0f12"
+foreground = "#d7dae0"
 `;
 }
 

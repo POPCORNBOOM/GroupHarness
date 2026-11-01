@@ -9,10 +9,10 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { maskSecrets } from './config';
+import { ConfigError, maskSecrets } from './config';
 import { GroupAdmin, type AgentConfigPatch, type GroupConfigPatch } from './group-admin';
 import type { Group } from './group';
-import type { Harness } from './harness';
+import type { Harness, SettingsPatch } from './harness';
 import type { ListenConfig, ResponsePolicy } from './meta';
 import { PERMISSION_IDS, type PermissionId } from './permissions';
 import type { SearchOptions } from './storage';
@@ -69,6 +69,11 @@ function numberValue(body: Record<string, unknown>, key: string): number {
   return value;
 }
 
+function isLoopback(hostname: string): boolean {
+  const name = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return name === 'localhost' || name === '127.0.0.1' || name === '::1';
+}
+
 function displayHost(host: string): string {
   if (host === '0.0.0.0' || host === '::' || host === '') return '127.0.0.1';
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
@@ -122,8 +127,13 @@ export class AdminWeb {
       const origin = request.headers.origin;
       if (origin !== undefined) {
         try {
-          if (new URL(origin).host !== request.headers.host) {
-            throw new HttpError(403, 'cross-origin request rejected');
+          const originUrl = new URL(origin);
+          const requestHost = request.headers.host ?? '';
+          if (originUrl.host !== requestHost) {
+            const requestUrl = new URL(`http://${requestHost}`);
+            const sameLoopback =
+              isLoopback(originUrl.hostname) && isLoopback(requestUrl.hostname) && originUrl.port === requestUrl.port;
+            if (!sameLoopback) throw new HttpError(403, 'cross-origin request rejected');
           }
         } catch (error) {
           if (error instanceof HttpError) throw error;
@@ -134,6 +144,22 @@ export class AdminWeb {
 
     if (method === 'GET' && url.pathname === '/api/state') {
       this.sendJson(response, 200, this.state(url));
+      return;
+    }
+    if (method === 'GET' && url.pathname === '/api/settings') {
+      this.sendJson(response, 200, this.settingsView());
+      return;
+    }
+    if (method === 'PUT' && url.pathname === '/api/settings') {
+      const body = asRecord(await this.readJson(request));
+      const patch = asRecord(body.patch);
+      try {
+        this.harness.updateSettings(patch as SettingsPatch, 'web');
+      } catch (error) {
+        if (error instanceof ConfigError) throw new HttpError(400, error.message);
+        throw error;
+      }
+      this.sendJson(response, 200, { ok: true });
       return;
     }
     if (method === 'GET' && url.pathname === '/api/search') {
@@ -286,6 +312,19 @@ export class AdminWeb {
       permissionIds: [...PERMISSION_IDS],
       businessTools: BUSINESS_TOOL_DEFINITIONS.map((definition) => definition.name),
       im: this.imUrl(),
+      settings: this.settingsView(),
+    };
+  }
+
+  private settingsView(): unknown {
+    const global = this.harness.globalConfig();
+    return {
+      model: maskSecrets(global.model),
+      filePermission: global.filePermission,
+      workingDirectory: global.workingDirectory,
+      im: global.im,
+      webui: global.webui,
+      configPath: this.harness.configPath,
     };
   }
 

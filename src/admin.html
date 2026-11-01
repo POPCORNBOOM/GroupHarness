@@ -46,6 +46,8 @@
   input[type="checkbox"]:checked { border-color: var(--accent); background: var(--accent); }
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="color"] { appearance: auto; -webkit-appearance: auto; width: 48px; height: 24px; padding: 2px; }
+  .theme-hex { opacity: .62; font-size: 12px; }
   ::selection { background: var(--accent); color: var(--bg); }
   button { cursor: pointer; }
   button:hover, button:focus, button.active { border-color: var(--accent); color: var(--accent); }
@@ -96,6 +98,7 @@
   <span id="server" class="muted"></span>
   <span id="status" class="muted"></span>
   <span class="spacer"></span>
+  <button type="button" id="settings-button">settings</button>
   <button type="button" id="refresh">refresh</button>
   <button type="button" id="reload-config">reload config</button>
 </header>
@@ -332,6 +335,98 @@
         </div>
       </section>
     </div>
+
+    <div id="settings-panel" hidden>
+      <div class="row" style="margin-bottom: 10px;">
+        <h1>Software settings</h1>
+        <span id="settings-status" class="muted"></span>
+        <span class="spacer"></span>
+        <span id="settings-config-path" class="muted"></span>
+      </div>
+      <p class="muted">Changes save automatically: colors immediately, other fields when you leave them. There is no Save button.</p>
+
+      <div class="section">
+        <h2>Theme</h2>
+        <div class="grid">
+          <label>accent
+            <span class="row">
+              <input type="color" data-theme="accent">
+              <span id="accent-hex" class="theme-hex"></span>
+            </span>
+          </label>
+          <label>background
+            <span class="row">
+              <input type="color" data-theme="background">
+              <span id="background-hex" class="theme-hex"></span>
+            </span>
+          </label>
+          <label>foreground
+            <span class="row">
+              <input type="color" data-theme="foreground">
+              <span id="foreground-hex" class="theme-hex"></span>
+            </span>
+          </label>
+        </div>
+        <p class="muted">Saved automatically to <code>[webui]</code>; applies immediately to this admin UI.</p>
+      </div>
+
+      <form id="settings-form">
+        <div class="section">
+          <h2>Global model</h2>
+          <p class="muted">Changes apply on each agent's next wake-up. API key is never shown; leave blank to keep it.</p>
+          <div class="grid">
+            <label>format
+              <select name="format">
+                <option value="completion">completion</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+            </label>
+            <label>baseurl <input name="baseurl" autocomplete="off"></label>
+            <label>model <input name="model" autocomplete="off"></label>
+            <label>reasoning_effort <input name="reasoning_effort"></label>
+            <label>context_window <input name="context_window" type="number" min="1"></label>
+            <label>max_output_tokens <input name="max_output_tokens" type="number" min="1"></label>
+            <label>apikey
+              <span class="row">
+                <input name="apikey" autocomplete="off" placeholder="leave blank to keep">
+                <button type="button" id="clear-key">clear</button>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Global file permission</h2>
+          <div class="grid">
+            <label>default
+              <select name="file_default">
+                <option value="inherit">inherit</option>
+                <option value="deny_all">deny_all</option>
+              </select>
+            </label>
+            <label>read prefixes <input name="file_read" placeholder="/abs/a,/abs/b or deny_all"></label>
+            <label>write prefixes <input name="file_write"></label>
+            <label>execute prefixes <input name="file_execute"></label>
+            <label>deny prefixes <input name="file_deny"></label>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Global working directory</h2>
+          <label>working_directory <input name="working_directory" placeholder="relative to the project root"></label>
+          <p class="muted">Saved automatically; the directory is created if missing.</p>
+        </div>
+
+        <div class="section">
+          <h2>Mock IM</h2>
+          <div class="grid">
+            <label>host <input name="im_host"></label>
+            <label>port <input name="im_port" type="number" min="0" max="65535"></label>
+          </div>
+          <p class="muted">Saved automatically. The running listener keeps the old host/port until the next restart.</p>
+        </div>
+      </form>
+    </div>
   </main>
 </div>
 
@@ -347,6 +442,11 @@
   var activeTab = 'overview';
   var searchNext = null;
   var wired = false;
+  var settingsView = false;
+  var pendingSettings = {};
+  var settingsTimer = null;
+  var settingsVersion = 0;
+  var settingsSaveChain = Promise.resolve();
 
   function $(selector) { return document.querySelector(selector); }
   function $$(selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); }
@@ -424,6 +524,148 @@
     var parsed = Number(trimmed);
     if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(label + ' must be a positive integer');
     return parsed;
+  }
+  function ruleText(rule) {
+    if (rule === 'deny_all') return 'deny_all';
+    return (rule || []).join(',');
+  }
+  function setSettingsStatus(message, isError) {
+    var node = $('#settings-status');
+    node.textContent = message || '';
+    node.className = isError ? 'error-text' : 'muted';
+  }
+  function applyTheme(theme) {
+    if (!theme) return;
+    var root = document.documentElement;
+    var map = { accent: '--accent', background: '--bg', foreground: '--fg' };
+    Object.keys(map).forEach(function (key) {
+      if (/^#[0-9a-fA-F]{6}$/.test(theme[key] || '')) root.style.setProperty(map[key], theme[key]);
+    });
+  }
+  function themeFromControls() {
+    var theme = {};
+    $$('[data-theme]').forEach(function (input) { theme[input.dataset.theme] = input.value; });
+    return theme;
+  }
+  function updateThemeHex(theme) {
+    ['accent', 'background', 'foreground'].forEach(function (key) {
+      var node = $('#' + key + '-hex');
+      if (node) node.textContent = theme && theme[key] ? theme[key] : '';
+    });
+  }
+  function mergeSettingsPatch(target, source) {
+    Object.keys(source).forEach(function (key) {
+      var value = source[key];
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        target[key] = mergeSettingsPatch(target[key] || {}, value);
+      } else {
+        target[key] = value;
+      }
+    });
+    return target;
+  }
+  function queueSettings(patch) {
+    mergeSettingsPatch(pendingSettings, patch);
+    settingsVersion += 1;
+    setSettingsStatus('saving…');
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(flushSettings, 450);
+  }
+  function flushSettings() {
+    settingsTimer = null;
+    var patch = pendingSettings;
+    pendingSettings = {};
+    if (!Object.keys(patch).length) return;
+    var version = settingsVersion;
+    settingsSaveChain = settingsSaveChain.then(async function () {
+      try {
+        await api('/api/settings', { method: 'PUT', body: { patch: patch } });
+        if (patch.model && Object.prototype.hasOwnProperty.call(patch.model, 'apikey')) {
+          var keyInput = $('#settings-form').elements.apikey;
+          keyInput.value = '';
+          keyInput.placeholder = patch.model.apikey === '' ? 'no key set' : 'key set (saved)';
+        }
+        if (version === settingsVersion) setSettingsStatus('saved');
+      } catch (error) {
+        setSettingsStatus('error: ' + error.message, true);
+      }
+    });
+  }
+  function fillSettings() {
+    if (!state || !state.settings) return;
+    var settings = state.settings;
+    setSettingsStatus('');
+    applyTheme(settings.webui);
+    updateThemeHex(settings.webui);
+    $$('[data-theme]').forEach(function (input) {
+      var value = settings.webui && settings.webui[input.dataset.theme];
+      if (/^#[0-9a-fA-F]{6}$/.test(value || '')) input.value = value.toLowerCase();
+    });
+    $('#settings-config-path').textContent = settings.configPath || '';
+    var form = $('#settings-form');
+    form.elements.format.value = settings.model.format;
+    form.elements.baseurl.value = settings.model.baseurl;
+    form.elements.model.value = settings.model.model;
+    form.elements.reasoning_effort.value = settings.model.reasoning_effort;
+    form.elements.context_window.value = settings.model.context_window;
+    form.elements.max_output_tokens.value = settings.model.max_output_tokens;
+    form.elements.apikey.value = '';
+    form.elements.apikey.placeholder = settings.model.apikey ? 'key set: ' + settings.model.apikey : 'no key set';
+    form.elements.file_default.value = settings.filePermission.default || 'inherit';
+    form.elements.file_read.value = ruleText(settings.filePermission.read);
+    form.elements.file_write.value = ruleText(settings.filePermission.write);
+    form.elements.file_execute.value = ruleText(settings.filePermission.execute);
+    form.elements.file_deny.value = (settings.filePermission.deny || []).join(',');
+    form.elements.working_directory.value = settings.workingDirectory;
+    form.elements.im_host.value = settings.im.host;
+    form.elements.im_port.value = settings.im.port;
+  }
+  function settingsControlChanged(control) {
+    var name = control.name;
+    if (!name) return;
+    try {
+      if (name === 'format') {
+        queueSettings({ model: { format: control.value } });
+      } else if (name === 'baseurl' || name === 'model' || name === 'reasoning_effort') {
+        var modelPatch = { model: {} };
+        modelPatch.model[name] = control.value;
+        queueSettings(modelPatch);
+      } else if (name === 'context_window' || name === 'max_output_tokens') {
+        var number = Number(control.value);
+        if (!Number.isSafeInteger(number) || number <= 0) throw new Error(name + ' must be a positive integer');
+        var numberPatch = { model: {} };
+        numberPatch.model[name] = number;
+        queueSettings(numberPatch);
+      } else if (name === 'apikey') {
+        var key = control.value.trim();
+        if (key === '') {
+          setSettingsStatus('leave blank to keep the current key; use clear to remove it');
+          return;
+        }
+        queueSettings({ model: { apikey: key } });
+      } else if (name === 'file_default') {
+        queueSettings({ filePermission: { default: control.value } });
+      } else if (name === 'file_read' || name === 'file_write' || name === 'file_execute') {
+        var rulePatch = { filePermission: {} };
+        rulePatch.filePermission[name.slice(5)] = pathRule(control.value);
+        queueSettings(rulePatch);
+      } else if (name === 'file_deny') {
+        queueSettings({ filePermission: { deny: splitList(control.value) } });
+      } else if (name === 'working_directory') {
+        queueSettings({ workingDirectory: control.value });
+      } else if (name === 'im_host') {
+        var host = control.value.trim();
+        if (host === '') throw new Error('im host must be non-empty');
+        queueSettings({ im: { host: host } });
+      } else if (name === 'im_port') {
+        if (control.value.trim() === '') throw new Error('im port must be 0-65535');
+        var port = Number(control.value);
+        if (!Number.isSafeInteger(port) || port < 0 || port > 65535) throw new Error('im port must be 0-65535');
+        queueSettings({ im: { port: port } });
+      }
+    } catch (error) {
+      setSettingsStatus('error: ' + error.message, true);
+    }
   }
   function buildConfigPatch(data) {
     var model = {
@@ -517,6 +759,17 @@
   function render(fillForms) {
     $('#server').textContent = state.im ? 'IM ' + state.im : '';
     renderGroups();
+    if (state.settings) applyTheme(state.settings.webui);
+    if (settingsView) {
+      $('#empty').hidden = true;
+      $('#group-panel').hidden = true;
+      $('#settings-panel').hidden = false;
+      $('#settings-button').classList.add('active');
+      fillSettings();
+      return;
+    }
+    $('#settings-panel').hidden = true;
+    $('#settings-button').classList.remove('active');
     var group = state.group;
     $('#empty').hidden = group !== null;
     $('#group-panel').hidden = group === null;
@@ -555,10 +808,11 @@
       var item = button(group.id + ' · ' + group.name, function () {
         selectedGroup = group.id;
         selectedAgent = '';
+        settingsView = false;
         localStorage.setItem('gh_group', selectedGroup);
         load(true);
       });
-      item.className = state.group && state.group.id === group.id ? 'active' : '';
+      item.className = !settingsView && state.group && state.group.id === group.id ? 'active' : '';
       item.title = group.error || (group.members + ' members, ' + group.agents + ' agents');
       list.append(el('li', {}, item));
     });
@@ -831,6 +1085,31 @@
       hideTokenGate();
       load(true);
     });
+    $('#settings-button').addEventListener('click', function () {
+      if (settingsView) return;
+      settingsView = true;
+      if (state) render(true);
+      else load(true);
+    });
+    $('#settings-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var active = document.activeElement;
+      if (active && active.name) settingsControlChanged(active);
+    });
+    $('#settings-form').addEventListener('change', function (event) { settingsControlChanged(event.target); });
+    $('#clear-key').addEventListener('click', function () {
+      $('#settings-form').elements.apikey.value = '';
+      queueSettings({ model: { apikey: '' } });
+      setSettingsStatus('clearing key…');
+    });
+    $$('[data-theme]').forEach(function (input) {
+      input.addEventListener('input', function () {
+        var theme = themeFromControls();
+        applyTheme(theme);
+        updateThemeHex(theme);
+        queueSettings({ webui: theme });
+      });
+    });
     $('#refresh').addEventListener('click', function () { load(false); });
     $('#reload-config').addEventListener('click', async function () {
       try { await api('/api/reload', { method: 'POST' }); await load(true); setStatus('config reloaded'); }
@@ -849,6 +1128,7 @@
       try {
         await api('/api/groups', { method: 'POST', body: { id: data.id.trim(), name: data.name.trim() || undefined } });
         selectedGroup = data.id.trim();
+        settingsView = false;
         localStorage.setItem('gh_group', selectedGroup);
         event.currentTarget.reset();
         await load(true);

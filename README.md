@@ -84,6 +84,7 @@ WebSocket 客户端连上来：
 - agent 列表；每个 agent 的 model / tools / working_directory / file_permission 覆盖
 - 任务列表、任务详情（读私有任务写审计）
 - 最近消息与消息搜索
+- 软件设置（全局 model / file_permission / working_directory / mock IM / 主题色）
 - reload config
 
 API 写操作需要启动时随机生成的 token；终端 URL 里的 `?token=...` 就是它。页面把 token
@@ -92,6 +93,21 @@ API 写操作需要启动时随机生成的 token；终端 URL 里的 `?token=..
 
 样式约束：`admin.html` 只定义 `--accent` / `--bg` / `--fg` 三个颜色，所有按钮、输入框、
 表格、面板统一是 1px 边框、0 圆角，无阴影、无渐变。
+
+### 软件设置（自动保存）
+
+页头 `settings` 打开全局设置，不需要先选群。改完就保存，没有 Save 按钮：
+
+- **主题**：accent / background / foreground 三个颜色，即时应用；落盘到 `[webui]`
+- **全局 model**：format、baseurl、model、reasoning_effort、context_window、max_output_tokens；
+  API key 不显示，输入新值即覆盖，`clear` 显式清空
+- **全局 file_permission**：default 与 read/write/execute/deny 前缀
+- **全局 working_directory**：相对项目根；保存时自动创建目录
+- **mock IM**：host / port；写入配置，但当前监听要等下次启动才换
+
+设置写入 `config.toml` 并立即更新内存；model/file_permission 在下一次 agent 唤醒/工具执行时生效。
+每次尝试都会写审计（actor `web`，action `set_settings`）。保存会重写整个 `config.toml`，
+只保留文件头注释。
 
 ### 一键真实模型演示
 
@@ -163,6 +179,11 @@ default = "inherit"            # inherit | deny_all
 [im]
 host = "127.0.0.1"
 port = 8787                    # 0 = 随机端口
+
+[webui]                        # Web 管理台主题（settings 页自动保存）
+accent = "#6ea8fe"
+background = "#0d0f12"
+foreground = "#d7dae0"
 ```
 
 ## 工具
@@ -215,7 +236,7 @@ npm test
 覆盖：配置合并与严格校验、路径权限（含符号链接逃逸）、FTS/短词回退与分页、事务回滚、
 v1 → v2 schema 迁移、队列状态机、分发规则、监听过滤、agent 工具循环与上下文恢复、
 运行时新增成员、异步任务结果通道、公开/私有任务可见性、两套 LLM 协议映射、模拟 IM 往返、
-Web 管理台 token/API/审计与样式约束。
+Web 管理台 token/API/审计与样式约束、全局设置持久化与主题校验。
 
 ## 已知边界（第一版）
 
@@ -230,6 +251,8 @@ Web 管理台 token/API/审计与样式约束。
 - Web 管理台和模拟 IM 都只应绑 `127.0.0.1`；改 host 前先想清楚，mock IM 本身没有鉴权。
 - 外部直接改 `meta.toml` / agent config 后，运行中的 Web/TUI 需点 `reload config`（或执行
   `reload`）才会读到新成员/策略；模型与权限配置在每次 agent 唤醒时自然重读。
+- Web 设置页保存会重写整个 `config.toml`；手工加在文件里的注释（除文件头）会丢。改 IM
+  host/port 只写配置，当前进程的监听地址不会热切换。
 - 无插件系统、无真实 IM、无任务重试、无人为防循环上限（与设计文档一致）。
 - 任务失败/队列失败保留在数据库中供排查，不自动重试。
 - 第一版允许明文 apikey；`file_permission` 默认不限制，启用文件工具的 agent 可以读工作目录内的

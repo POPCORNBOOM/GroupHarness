@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 import { Harness } from '../src/harness';
 import { demoMeta, makeRoot, writeFixture } from './helpers';
@@ -48,12 +49,27 @@ test('web admin serves the page, guards the API, and drives the same admin path'
       permissionIds: string[];
       businessTools: string[];
       im: string;
+      settings: {
+        model: { apikey: string; model: string };
+        filePermission: { default: string };
+        workingDirectory: string;
+        im: { host: string; port: number };
+        webui: { accent: string; background: string; foreground: string };
+        configPath: string;
+      };
     };
     assert.equal(initial.group.id, 'demo');
     assert.equal(initial.group.name, 'Demo');
     assert.equal(initial.permissionIds.length, 6);
     assert.ok(initial.businessTools.includes('read_file'));
     assert.match(initial.im, /^ws:\/\//);
+    assert.equal(initial.settings.webui.accent, '#6ea8fe');
+    assert.equal(initial.settings.webui.background, '#0d0f12');
+    assert.equal(initial.settings.webui.foreground, '#d7dae0');
+    assert.equal(initial.settings.model.apikey.includes('sk-test-secret-value'), false);
+    assert.match(initial.settings.model.apikey, /sk-.*alue/);
+    assert.equal((await fetch(base + '/api/settings')).status, 401);
+    assert.equal((await fetch(base + '/api/settings', withToken())).status, 200);
 
     const added = await fetch(
       base + '/api/members',
@@ -108,6 +124,52 @@ test('web admin serves the page, guards the API, and drives the same admin path'
       undefined,
     );
 
+    const updated = await fetch(
+      base + '/api/settings',
+      withToken({
+        method: 'PUT',
+        body: JSON.stringify({
+          patch: {
+            model: { model: 'global-model', context_window: 64000 },
+            filePermission: { read: ['/tmp/allowed'] },
+            workingDirectory: 'settings-work',
+            webui: { accent: '#112233', background: '#010203', foreground: '#aabbcc' },
+          },
+        }),
+      }),
+    );
+    assert.equal(updated.status, 200);
+    const settings = (await (await fetch(base + '/api/settings', withToken())).json()) as {
+      model: { model: string; context_window: number; apikey: string };
+      filePermission: { read: string[] };
+      workingDirectory: string;
+      webui: { accent: string; background: string; foreground: string };
+    };
+    assert.equal(settings.model.model, 'global-model');
+    assert.equal(settings.model.context_window, 64000);
+    assert.deepEqual(settings.filePermission.read, ['/tmp/allowed']);
+    assert.equal(settings.workingDirectory, join(root, 'settings-work'));
+    assert.deepEqual(settings.webui, { accent: '#112233', background: '#010203', foreground: '#aabbcc' });
+    assert.equal(JSON.stringify(settings).includes('sk-test-secret-value'), false);
+    const configText = readFileSync(join(root, '.groupharness', 'config.toml'), 'utf8');
+    assert.match(configText, /model = "global-model"/);
+    assert.match(configText, /accent = "#112233"/);
+    assert.match(configText, /apikey = "sk-test-secret-value"/);
+    assert.equal(
+      (await fetch(
+        base + '/api/settings',
+        withToken({ method: 'PUT', body: JSON.stringify({ patch: { webui: { accent: 'red' } } }) }),
+      )).status,
+      400,
+    );
+    assert.equal(
+      (await fetch(
+        base + '/api/settings',
+        withToken({ method: 'PUT', body: JSON.stringify({ patch: { nope: true } }) }),
+      )).status,
+      400,
+    );
+
     const permission = await fetch(
       base + '/api/permissions',
       withToken({
@@ -130,7 +192,9 @@ test('web admin serves the page, guards the API, and drives the same admin path'
     await harness.audit.close();
     const audit = readFileSync(root + '/.groupharness/audit.jsonl', 'utf8');
     assert.match(audit, /"actor":"web"/);
+    assert.match(audit, /"action":"set_settings"/);
     assert.equal(audit.includes('sk-web-secret'), false);
+    assert.equal(audit.includes('sk-test-secret-value'), false);
   } finally {
     await harness.close();
   }
