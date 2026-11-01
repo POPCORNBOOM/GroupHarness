@@ -41,6 +41,14 @@ interface ChatRange {
   itemIds: number[];
 }
 
+function escapeXml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAttr(value: string): string {
+  return escapeXml(value).replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+}
+
 function chatLines(item: QueueItem): { lines: ChatLine[]; triggerId: number } {
   const payload = item.payload as ChatPayload;
   return {
@@ -85,8 +93,8 @@ const chatTranslator: QueueTranslator = {
           .sort((a, b) => a.seq - b.seq);
         if (lines.length === 0) return undefined;
         const body = lines.map((line) => {
-          const text = `[${line.seq}]${line.sender_id}: ${line.text}`;
-          return triggers.has(line.seq) ? `你在意的->${text}` : text;
+          const important = triggers.has(line.seq) ? ' important' : '';
+          return `<msg${line.seq}${important} sender="${escapeAttr(line.sender_id)}">${escapeXml(line.text)}</msg${line.seq}>`;
         });
         return {
           id: Math.min(...range.itemIds),

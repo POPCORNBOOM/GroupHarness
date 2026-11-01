@@ -42,17 +42,17 @@ test('chat blocks merge adjacent histories, split gaps, and mark triggers', () =
   assert.equal(messages[0]!.content, [
     `Round #${roundHash(items)}`,
     '收到新消息，请查阅聊天记录',
-    '[20]alice: 服务又挂了',
-    '[21]bob: 我看看日志',
-    '[22]alice: @bob 日志在 /tmp/app.log',
-    '[23]dave: 我也看下',
-    '你在意的->[24]alice: @bob 你看下这个报错',
-    '你在意的->[25]carol: @bob 顺便看下磁盘',
+    '<msg20 sender="alice">服务又挂了</msg20>',
+    '<msg21 sender="bob">我看看日志</msg21>',
+    '<msg22 sender="alice">@bob 日志在 /tmp/app.log</msg22>',
+    '<msg23 sender="dave">我也看下</msg23>',
+    '<msg24 important sender="alice">@bob 你看下这个报错</msg24>',
+    '<msg25 important sender="carol">@bob 顺便看下磁盘</msg25>',
   ].join('\n'));
   assert.equal(messages[1]!.content, [
     `Round #${roundHash(items)}`,
     '收到新消息，请查阅聊天记录',
-    '你在意的->[29]carol: @bob 另一个话题',
+    '<msg29 important sender="carol">@bob 另一个话题</msg29>',
   ].join('\n'));
 });
 
@@ -78,11 +78,17 @@ test('mixed kinds keep id order and share one round hash', () => {
   const hash = `Round #${roundHash(items)}`;
   assert.deepEqual(messages.map((message) => message.role), Array(5).fill('user'));
   assert.ok(messages.every((message) => message.content.startsWith(hash + '\n')));
-  assert.match(messages[0]!.content, /你在意的->\[24\]alice: @bob 看这个/);
+  assert.match(messages[0]!.content, /<msg24 important sender="alice">@bob 看这个<\/msg24>/);
   assert.match(messages[1]!.content, /^[\s\S]*\[任务结果\]\ntask_id: task-8d1/);
   assert.match(messages[2]!.content, /\[系统重启\]/);
   assert.match(messages[3]!.content, /\[未知事件\] \{"probe":true\}/);
-  assert.match(messages[4]!.content, /你在意的->\[29\]carol: @bob 另一个/);
+  assert.match(messages[4]!.content, /<msg29 important sender="carol">@bob 另一个<\/msg29>/);
+});
+
+test('chat XML escapes text and sender attributes', () => {
+  const items = [chat(1, { seq: 1, sender_id: 'a"&', text: '<x> & "y"' })];
+  const content = new QueueRenderer().render(items)[0]!.content;
+  assert.match(content, /<msg1 important sender="a&quot;&amp;">&lt;x&gt; &amp; "y"<\/msg1>/);
 });
 
 test('translator output ids must come from the batch', () => {
