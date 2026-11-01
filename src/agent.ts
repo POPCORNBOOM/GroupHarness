@@ -10,7 +10,7 @@ import { dirname } from 'node:path';
 import type { ResolvedConfig } from './config';
 import type { QueueItem, QueueStatus } from './storage';
 import type { ChatMessage, LlmLike, ToolCall } from './llm';
-import { PROMPTS, type PromptMember } from './prompts';
+import { systemPrompt, type PromptMember } from './prompts';
 import { roundHash } from './render';
 import {
   buildToolRegistry,
@@ -184,7 +184,7 @@ export class AgentRuntime {
     }
 
     const trimmed = this.trimmedContext(config);
-    const system = PROMPTS.system({
+    const system = systemPrompt({
       agentId: this.options.agentId,
       groupId: this.options.host.groupId,
       groupName: this.options.host.groupName(),

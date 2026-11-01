@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ChatMessage } from './llm';
-import { PROMPTS } from './prompts';
+import { RESTART_PROMPT, taskResultPrompt } from './prompts';
 import type { QueueItem } from './storage';
 
 export interface RenderedBlock {
@@ -112,7 +112,7 @@ const taskResultTranslator: QueueTranslator = {
       const payload = item.payload as TaskResultPayload;
       return {
         id: item.id,
-        content: PROMPTS.taskResult({
+        content: taskResultPrompt({
           taskId: payload.task_id,
           tooltype: payload.tooltype,
           status: payload.status,
@@ -128,7 +128,7 @@ const taskResultTranslator: QueueTranslator = {
 const restartTranslator: QueueTranslator = {
   kind: 'system_restart',
   translate(items) {
-    return items.map((item) => ({ id: item.id, content: PROMPTS.restart() }));
+    return items.map((item) => ({ id: item.id, content: RESTART_PROMPT }));
   },
 };
 

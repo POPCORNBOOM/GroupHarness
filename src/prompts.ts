@@ -39,16 +39,17 @@ export interface TaskResultPromptInput {
   publisherId: string;
 }
 
+const permissionRule = (permission: FilePermission, value: FilePermission['read']): string => {
+  if (value === 'deny_all') return 'deny all';
+  if (value === undefined) return permission.default === 'deny_all' ? 'deny all' : 'allow all';
+  return value.length === 0 ? 'allow all' : value.join(', ');
+};
+
 const renderPermission = (permission: FilePermission): string => {
-  const rule = (value: FilePermission['read']): string => {
-    if (value === 'deny_all') return 'deny all';
-    if (value === undefined) return permission.default === 'deny_all' ? 'deny all' : 'allow all';
-    return value.length === 0 ? 'allow all' : value.join(', ');
-  };
   const parts = [
-    `read: ${rule(permission.read)}`,
-    `write: ${rule(permission.write)}`,
-    `execute: ${rule(permission.execute)}`,
+    `read: ${permissionRule(permission, permission.read)}`,
+    `write: ${permissionRule(permission, permission.write)}`,
+    `execute: ${permissionRule(permission, permission.execute)}`,
   ];
   if (permission.deny !== undefined && permission.deny.length > 0) {
     parts.push(`deny (wins): ${permission.deny.join(', ')}`);
@@ -70,51 +71,49 @@ const renderJson = (value: unknown): string => {
   }
 };
 
-/** Named prompt fragments; functions keep values next to their wording. */
-export const PROMPTS = {
-  system: (input: SystemPromptInput): string => `You are "${input.agentId}", an agent member of the group "${input.groupName}" (group_id: ${input.groupId}).
+const BACKGROUND_TASKS = `run_command_async starts a task and returns immediately. Its result later arrives as a [任务结果] event. list_tasks and get_task read task state; a private task is visible only to its publisher, its listeners, and admins.`;
 
-## Members
-${bulletMembers(input.members)}
-
-## How to act
-You are woken by group events. A user message starting with "收到新消息，请查阅聊天记录" is group history, not your private memory.
+const howToAct = (maxToolRounds: number): string => `You are woken by group events. A user message starting with "收到新消息，请查阅聊天记录" is group history, not your private memory.
 - To speak in the group you MUST call send_message. Text you produce without that tool call is never delivered.
 - Mention a member as @<member_id>.
-- A turn may use several tool calls; the harness stops the loop after ${input.maxToolRounds} rounds.
+- A turn may use several tool calls; the harness stops the loop after ${maxToolRounds} rounds.
 - A wake may append several user messages sharing the same Round #; treat them as one batch and reply once.
 - When a task_result answers something you asked for, act on it rather than starting the same task again.
-- Be brief unless the conversation asks for detail.
+- Be brief unless the conversation asks for detail.`;
 
-## Background tasks
-run_command_async starts a task and returns immediately. Its result later arrives as a [任务结果] event. list_tasks and get_task read task state; a private task is visible only to its publisher, its listeners, and admins.
-
-## Files and commands
-Your working directory is: ${input.workingDirectory}
+const filesAndCommands = (input: SystemPromptInput): string => `Your working directory is: ${input.workingDirectory}
 File permission enforced by the harness: ${renderPermission(input.filePermission)}
 Relative paths resolve against the working directory. Operations outside the policy are denied; report the limitation instead of retrying.
 ${input.businessTools.length > 0 ? `Business tools enabled for you: ${input.businessTools.join(', ')}.` : 'No business tools are enabled for you.'}
-${input.truncated ? '\nEarlier turns were truncated to keep the context within its window.' : ''}`,
+${input.truncated ? '\nEarlier turns were truncated to keep the context within its window.' : ''}`;
 
-  taskResult: (input: TaskResultPromptInput): string => {
-    const body =
-      input.status === 'done'
-        ? `result:\n${renderJson(input.result)}`
-        : `error: ${input.error ?? 'unknown'}`;
-    return [
-      '[任务结果]',
-      `task_id: ${input.taskId}`,
-      `tooltype: ${input.tooltype}`,
-      `status: ${input.status}`,
-      `publisher: ${input.publisherId}`,
-      body,
-    ].join('\n');
-  },
+export function systemPrompt(input: SystemPromptInput): string {
+  return [
+    `You are "${input.agentId}", an agent member of the group "${input.groupName}" (group_id: ${input.groupId}).`,
+    `## Members\n${bulletMembers(input.members)}`,
+    `## How to act\n${howToAct(input.maxToolRounds)}`,
+    `## Background tasks\n${BACKGROUND_TASKS}`,
+    `## Files and commands\n${filesAndCommands(input)}`,
+  ].join('\n\n');
+}
 
-  restart: (): string =>
-    `[系统重启]
-The harness restarted. Your context was restored; events that were pending before the restart are delivered with this wake-up.`,
-};
+export function taskResultPrompt(input: TaskResultPromptInput): string {
+  const body =
+    input.status === 'done'
+      ? `result:\n${renderJson(input.result)}`
+      : `error: ${input.error ?? 'unknown'}`;
+  return [
+    '[任务结果]',
+    `task_id: ${input.taskId}`,
+    `tooltype: ${input.tooltype}`,
+    `status: ${input.status}`,
+    `publisher: ${input.publisherId}`,
+    body,
+  ].join('\n');
+}
+
+export const RESTART_PROMPT = `[系统重启]
+The harness restarted. Your context was restored; events that were pending before the restart are delivered with this wake-up.`;
 
 /** Render a message for the history section; unknown kinds are never injected. */
 export function injectableText(line: HistoryLine): string | undefined {
