@@ -13,15 +13,25 @@
   }
   * { box-sizing: border-box; border-radius: 0 !important; }
   [hidden] { display: none !important; }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    overflow: hidden;
+  }
   body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    padding-bottom: 24px;
   }
   h1, h2, h3 { margin: 0 0 8px; font-weight: 600; }
   h1 { font-size: 16px; }
-  h2 { font-size: 13px; }
-  h3 { font-size: 13px; }
+  h2, h3 { font-size: 13px; }
+  p { margin: 0 0 8px; }
+  p:last-child { margin-bottom: 0; }
   a { color: var(--accent); }
   button, input, select, textarea {
     font: inherit;
@@ -29,13 +39,11 @@
     background: var(--bg);
     border: 1px solid var(--fg);
     border-radius: 0;
-    padding: 4px 6px;
+    padding: 5px 8px;
     appearance: none;
     -webkit-appearance: none;
   }
   input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
     width: 13px;
     height: 13px;
     padding: 0;
@@ -47,48 +55,125 @@
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type="color"] { appearance: auto; -webkit-appearance: auto; width: 48px; height: 24px; padding: 2px; }
-  .theme-hex { opacity: .62; font-size: 12px; }
+  label > input:not([type="checkbox"]):not([type="color"]),
+  label > select { width: 100%; }
+  .grow { flex: 1 1 220px; min-width: 0; }
   ::selection { background: var(--accent); color: var(--bg); }
   button { cursor: pointer; }
   button:hover, button:focus, button.active { border-color: var(--accent); color: var(--accent); }
   button:disabled { opacity: .45; cursor: not-allowed; }
   input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
   header {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
     border-bottom: 1px solid var(--fg);
     padding: 8px 12px;
   }
-  header .spacer { flex: 1; }
+  header .spacer { flex: 1 1 auto; }
+  header #status { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .muted { opacity: .62; }
   .error-text { color: var(--accent); }
-  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); }
-  aside { border-right: 1px solid var(--fg); padding: 10px; min-height: calc(100vh - 45px); }
-  main { padding: 12px; grid-column: 2; min-width: 0; }
-  .section { border: 1px solid var(--fg); padding: 10px; margin-bottom: 12px; }
+  #app { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+  }
+  aside {
+    border-right: 1px solid var(--fg);
+    padding: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  main {
+    grid-column: 2;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #empty { margin: auto; max-width: 520px; }
+  #group-panel, #settings-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .panel-head h1 { margin: 0; }
+  .panel-head .spacer { flex: 1 1 auto; }
+  #settings-config-path {
+    max-width: 50vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .panel-note { flex: none; }
+  .panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-right: 2px;
+  }
+  .section { border: 1px solid var(--fg); padding: 12px; margin-bottom: 12px; }
+  .section:last-child { margin-bottom: 0; }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
-  label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; min-width: 0; }
   label.inline { flex-direction: row; align-items: center; gap: 6px; display: inline-flex; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid var(--fg); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th, td { border: 1px solid var(--fg); padding: 6px 8px; text-align: left; vertical-align: top; }
   th { color: var(--accent); font-weight: 600; }
-  td.text { white-space: pre-wrap; word-break: break-word; }
+  td { word-break: break-word; }
   ul.groups { list-style: none; margin: 0; padding: 0; }
-  ul.groups li { margin-bottom: 4px; }
+  ul.groups li { margin-bottom: 6px; }
+  ul.groups li:last-child { margin-bottom: 0; }
   ul.groups button { display: block; width: 100%; text-align: left; }
   ul.groups button.active { border-color: var(--accent); color: var(--accent); }
-  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; flex: none; }
   .tabs button.active { border-color: var(--accent); color: var(--accent); }
   pre { border: 1px solid var(--fg); padding: 8px; margin: 0; white-space: pre-wrap; word-break: break-word; }
-  .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 4px 8px; }
+  .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 6px 12px; }
+  .kv > * { min-width: 0; overflow-wrap: anywhere; }
   .kv .k { opacity: .62; }
+  #group-title, #group-meta { min-width: 0; }
   .scroll { max-height: 340px; overflow: auto; }
-  .tool-list { display: flex; flex-wrap: wrap; gap: 12px; }
-  .token-gate { max-width: 720px; margin: 40px auto; }
+  .tool-list { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+  .form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .permission-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .permission-row:last-child { margin-bottom: 0; }
+  .permission-name { width: 230px; flex: none; }
+  .theme-hex { opacity: .62; font-size: 12px; }
+  .token-gate {
+    width: min(720px, calc(100vw - 24px));
+    max-height: calc(100vh - 90px);
+    margin: 24px auto;
+    overflow-y: auto;
+  }
+  .token-gate form input { flex: 1 1 240px; min-width: 0; width: 100%; }
   @media (max-width: 760px) {
-    .layout { grid-template-columns: 1fr; }
-    aside { border-right: 0; border-bottom: 1px solid var(--fg); min-height: 0; }
+    .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+    aside { border-right: 0; border-bottom: 1px solid var(--fg); max-height: 34vh; }
     main { grid-column: 1; }
+    .permission-name { width: 100%; }
+    header #status { max-width: 100vw; }
+    #settings-config-path { max-width: 100vw; }
+  }}
   }
 </style>
 </head>
@@ -129,7 +214,7 @@
   <main>
     <div id="empty" class="section muted" hidden>No groups yet. Create one on the left.</div>
     <div id="group-panel" hidden>
-      <div class="row" style="margin-bottom: 10px;">
+      <div class="panel-head">
         <h1 id="group-title"></h1>
         <span id="group-meta" class="muted"></span>
       </div>
@@ -143,6 +228,7 @@
         <button type="button" data-tab="messages">messages</button>
       </nav>
 
+      <div class="panel-body">
       <section data-panel="overview">
         <div class="section">
           <h2>Summary</h2>
@@ -178,7 +264,7 @@
             <label>execute prefixes <input name="file_execute"></label>
             <label>deny prefixes <input name="file_deny"></label>
           </div>
-          <div class="row" style="margin-top: 8px;"><button type="submit">save group config</button></div>
+          <div class="form-actions"><button type="submit">save group config</button></div>
         </form>
         <form id="admins-form" class="section">
           <h2>Admins</h2>
@@ -225,7 +311,7 @@
             <label>senders <input name="senders" placeholder="alice,bob"></label>
             <label>kinds <input name="kinds" placeholder="user_message,agent_message"></label>
           </div>
-          <div class="row" style="margin-top: 8px;"><button type="submit">save listen</button></div>
+          <div class="form-actions"><button type="submit">save listen</button></div>
         </form>
       </section>
 
@@ -246,7 +332,7 @@
             </label>
             <label>context_before <input name="context_before" type="number" min="0" value="0"></label>
           </div>
-          <div class="row" style="margin-top: 8px;"><button type="submit">add policy</button></div>
+          <div class="form-actions"><button type="submit">add policy</button></div>
         </form>
       </section>
 
@@ -294,8 +380,8 @@
             <label>execute prefixes <input name="file_execute"></label>
             <label>deny prefixes <input name="file_deny"></label>
           </div>
-          <div class="tool-list" id="agent-tools" style="margin-top: 10px;"></div>
-          <div class="row" style="margin-top: 8px;"><button type="submit">save agent config</button></div>
+          <div class="tool-list" id="agent-tools"></div>
+          <div class="form-actions"><button type="submit">save agent config</button></div>
         </form>
         <div id="agent-empty" class="section muted" hidden>No agent members in this group.</div>
       </section>
@@ -316,7 +402,7 @@
           <h2>Send as user</h2>
           <div class="row">
             <select name="user"></select>
-            <input name="text" size="60" placeholder="message text; @mention allowed" required>
+            <input class="grow" name="text" size="60" placeholder="message text; @mention allowed" required>
             <button type="submit">send</button>
           </div>
           <p class="muted">Posts as the selected user. The audit actor is web.</p>
@@ -333,7 +419,7 @@
             <label>until (ISO) <input name="until"></label>
             <label>limit <input name="limit" type="number" min="1" max="200" value="50"></label>
           </div>
-          <div class="row" style="margin-top: 8px;">
+          <div class="form-actions">
             <button type="submit">search</button>
             <button type="button" id="search-next" hidden>next page</button>
           </div>
@@ -343,17 +429,18 @@
           <div id="search-results" class="scroll"></div>
         </div>
       </section>
+      </div>
     </div>
 
     <div id="settings-panel" hidden>
-      <div class="row" style="margin-bottom: 10px;">
+      <div class="panel-head">
         <h1>Software settings</h1>
         <span id="settings-status" class="muted"></span>
         <span class="spacer"></span>
         <span id="settings-config-path" class="muted"></span>
       </div>
-      <p class="muted">Changes save automatically: colors immediately, other fields when you leave them. There is no Save button.</p>
-
+      <p class="muted panel-note">Changes save automatically: colors immediately, other fields when you leave them. There is no Save button.</p>
+      <div class="panel-body">
       <div class="section">
         <h2>Theme</h2>
         <div class="grid">
@@ -435,6 +522,7 @@
           <p class="muted">Saved automatically. The running listener keeps the old host/port until the next restart.</p>
         </div>
       </form>
+      </div>
     </div>
   </main>
 </div>
@@ -951,8 +1039,8 @@
           setStatus('permission saved');
         } catch (error) { setStatus('error: ' + error.message, true); }
       });
-      container.append(el('div', { class: 'row', style: 'margin-bottom:6px;' }, [
-        el('span', { class: 'muted', text: permission, style: 'width:230px;' }),
+      container.append(el('div', { class: 'permission-row' }, [
+        el('span', { class: 'muted permission-name', text: permission }),
         input,
         save
       ]));
