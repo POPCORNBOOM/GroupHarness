@@ -170,6 +170,38 @@ export class GroupAdmin {
     });
   }
 
+  registerAgentTool(guard: InternalGuard, agentId: string, name: string): void {
+    assertInternal(guard);
+    const before = this.group.agentView(agentId)?.tools ?? [];
+    this.attempt('register_agent_tool', agentId, before, () => {
+      this.group.registerAgentTool(agentId, name);
+      this.success('register_agent_tool', agentId, before, this.group.agentView(agentId)?.tools ?? []);
+    });
+  }
+
+  unregisterAgentTool(guard: InternalGuard, agentId: string, name: string): void {
+    assertInternal(guard);
+    const before = this.group.agentView(agentId)?.tools ?? [];
+    this.attempt('unregister_agent_tool', agentId, before, () => {
+      this.group.unregisterAgentTool(agentId, name);
+      this.success('unregister_agent_tool', agentId, before, this.group.agentView(agentId)?.tools ?? []);
+    });
+  }
+
+  setAgentWorkingDirectory(guard: InternalGuard, agentId: string, path: string): void {
+    assertInternal(guard);
+    const before = this.group.agentView(agentId)?.workingDirectory;
+    this.attempt('set_agent_working_directory', agentId, before, () => {
+      this.group.setAgentWorkingDirectory(agentId, path);
+      this.success(
+        'set_agent_working_directory',
+        agentId,
+        before,
+        this.group.agentView(agentId)?.workingDirectory,
+      );
+    });
+  }
+
   setGroupConfig(guard: InternalGuard, patch: GroupConfigPatch): void {
     assertInternal(guard);
     const before = this.group.metaSnapshot();

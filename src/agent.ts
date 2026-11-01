@@ -13,7 +13,6 @@ import type { ChatMessage, LlmLike, ToolCall } from './llm';
 import { systemPrompt, type PromptMember } from './prompts';
 import { roundHash } from './render';
 import {
-  buildToolRegistry,
   ToolError,
   type ToolContext,
   type ToolGroupApi,
@@ -32,6 +31,8 @@ export interface AgentHost {
   resolveConfig(): ResolvedConfig;
   /** Business tool names enabled for this agent. */
   businessTools(): string[];
+  /** Tool definitions currently enabled for this agent. */
+  toolRegistry(): ToolRegistry;
   groupApi(): ToolGroupApi;
   renderQueue(items: QueueItem[], roundHash: string): ChatMessage[];
   takePending(): QueueItem[];
@@ -177,7 +178,7 @@ export class AgentRuntime {
   /** One wake-up: render the merged events, then run the tool loop. */
   private async wake(items: QueueItem[]): Promise<void> {
     const config = this.options.host.resolveConfig();
-    const registry = buildToolRegistry(this.options.host.businessTools());
+    const registry = this.options.host.toolRegistry();
 
     for (const message of this.options.host.renderQueue(items, roundHash(items))) {
       this.record(message);
@@ -339,7 +340,7 @@ export class AgentRuntime {
     try {
       this.options.host.markTaskRunning(taskId);
       const config = this.options.host.resolveConfig();
-      const registry = buildToolRegistry(this.options.host.businessTools());
+      const registry = this.options.host.toolRegistry();
       const definition = registry.get(tooltype);
       if (definition === undefined || definition.async !== true) {
         this.options.host.completeTask(taskId, 'failed', undefined, `unknown async tool "${tooltype}"`);

@@ -57,12 +57,15 @@ import { QueueRenderer, type QueueTranslator } from './render';
 import type { ChatMessage } from './llm';
 import {
   buildToolRegistry,
+  BUSINESS_TOOL_DEFINITIONS,
   ToolError,
   type AttentionInput,
   type AttentionView,
   type TaskDetail,
   type TaskSummary,
+  type ToolDefinition,
   type ToolGroupApi,
+  type ToolRegistry,
 } from './tools';
 import type { LlmLike } from './llm';
 
@@ -109,6 +112,12 @@ export interface AgentView {
   tools: string[];
   filePermission: FilePermission;
   workingDirectory: string;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  async: boolean;
 }
 
 function mention(text: string, memberId: string): boolean {
@@ -165,6 +174,9 @@ export class Group {
   private readonly agents = new Map<string, AgentRuntime>();
   private readonly transports = new Map<string, UserTransport>();
   private readonly attention = new Map<string, AttentionGrant>();
+  private readonly toolDefinitions = new Map<string, ToolDefinition>(
+    BUSINESS_TOOL_DEFINITIONS.map((definition) => [definition.name, definition]),
+  );
   private readonly renderer = new QueueRenderer();
   private readonly metaPath: string;
   private started = false;
@@ -241,6 +253,48 @@ export class Group {
       filePermission: config.filePermission,
       workingDirectory: config.workingDirectory,
     };
+  }
+
+  availableTools(): ToolInfo[] {
+    return [...this.toolDefinitions.values()]
+      .map((definition) => ({
+        name: definition.name,
+        description: definition.description,
+        async: definition.async === true,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  agentTools(agentId: string): string[] {
+    return this.businessToolsFor(agentId);
+  }
+
+  toolRegistryFor(agentId: string): ToolRegistry {
+    return buildToolRegistry(this.businessToolsFor(agentId));
+  }
+
+  registerAgentTool(agentId: string, name: string): void {
+    this.requireAgent(agentId);
+    if (!this.toolDefinitions.has(name)) throw new Error(`unknown business tool "${name}"`);
+    const layer = this.readAgentLayer(agentId);
+    const tools = layer.tools ?? [];
+    if (tools.includes(name)) throw new Error(`tool "${name}" is already enabled`);
+    this.writeAgentLayer(agentId, { ...layer, tools: [...tools, name] });
+  }
+
+  unregisterAgentTool(agentId: string, name: string): void {
+    this.requireAgent(agentId);
+    const layer = this.readAgentLayer(agentId);
+    const tools = layer.tools ?? [];
+    if (!tools.includes(name)) throw new Error(`tool "${name}" is not enabled`);
+    this.writeAgentLayer(agentId, { ...layer, tools: tools.filter((tool) => tool !== name) });
+  }
+
+  setAgentWorkingDirectory(agentId: string, path: string): void {
+    this.requireAgent(agentId);
+    if (path.trim() === '') throw new Error('working_directory must not be empty');
+    const layer = this.readAgentLayer(agentId);
+    this.writeAgentLayer(agentId, { ...layer, working_directory: path });
   }
 
   agentView(agentId: string): AgentView | undefined {
@@ -644,6 +698,12 @@ export class Group {
     return member;
   }
 
+  private requireAgent(agentId: string): MemberMeta {
+    const member = this.requireMember(agentId);
+    if (member.type !== 'agent') throw new Error(`"${agentId}" is not an agent`);
+    return member;
+  }
+
   private ownsTask(readerId: string, task: TaskRecord): boolean {
     return task.publisherId === readerId || task.listeners.includes(readerId);
   }
@@ -692,6 +752,7 @@ export class Group {
       members: () => this.promptMembers(),
       resolveConfig: () => this.resolveAgentConfig(agentId),
       businessTools: () => this.businessToolsFor(agentId),
+      toolRegistry: () => this.toolRegistryFor(agentId),
       groupApi: () => api,
       renderQueue: (items, roundHash) => this.renderQueue(items, roundHash),
       takePending: () => (this.closed ? [] : this.store.takePending(agentId)),
@@ -843,6 +904,13 @@ export class Group {
 
   writeAgentLayer(agentId: string, layer: AgentConfigLayer): void {
     validateAgentConfigLayer(this.agentConfigPath(agentId), layer);
+    const beforeLayer = this.readAgentLayer(agentId);
+    const beforeConfig = resolveConfig(
+      this.options.globalConfig(),
+      this.rootDir,
+      groupConfigLayer(this.meta),
+      beforeLayer,
+    );
     const config = resolveConfig(
       this.options.globalConfig(),
       this.rootDir,
@@ -852,6 +920,32 @@ export class Group {
     ensureWorkingDirectory(config.workingDirectory);
     buildToolRegistry(layer.tools ?? []);
     saveAgentConfigLayer(this.agentConfigPath(agentId), layer);
+
+    const beforeTools = beforeLayer.tools ?? [];
+    const afterTools = layer.tools ?? [];
+    const toolsAdded = afterTools.filter((tool) => !beforeTools.includes(tool));
+    const toolsRemoved = beforeTools.filter((tool) => !afterTools.includes(tool));
+    const workingDirectory =
+      beforeConfig.workingDirectory === config.workingDirectory
+        ? undefined
+        : { from: beforeConfig.workingDirectory, to: config.workingDirectory };
+    if (
+      this.started &&
+      (toolsAdded.length > 0 || toolsRemoved.length > 0 || workingDirectory !== undefined)
+    ) {
+      const now = new Date().toISOString();
+      this.store.enqueue(
+        agentId,
+        'config_update',
+        {
+          tools_added: toolsAdded,
+          tools_removed: toolsRemoved,
+          ...(workingDirectory === undefined ? {} : { working_directory: workingDirectory }),
+        },
+        now,
+      );
+      this.kick(agentId);
+    }
   }
 
   reloadMeta(): void {

@@ -125,6 +125,34 @@ const taskResultTranslator: QueueTranslator = {
   },
 };
 
+interface ConfigUpdatePayload {
+  tools_added: string[];
+  tools_removed: string[];
+  working_directory?: { from: string; to: string };
+}
+
+const configUpdateTranslator: QueueTranslator = {
+  kind: 'config_update',
+  translate(items) {
+    return items.map((item) => {
+      const payload = item.payload as ConfigUpdatePayload;
+      const parts = ['The agent configuration changed.'];
+      if (payload.tools_added.length > 0) {
+        parts.push(`Tools added: ${payload.tools_added.join(', ')}.`);
+      }
+      if (payload.tools_removed.length > 0) {
+        parts.push(`Tools removed: ${payload.tools_removed.join(', ')}.`);
+      }
+      if (payload.working_directory !== undefined) {
+        parts.push(
+          `Working directory changed from "${payload.working_directory.from}" to "${payload.working_directory.to}".`,
+        );
+      }
+      return { id: item.id, content: parts.join(' ') };
+    });
+  },
+};
+
 const restartTranslator: QueueTranslator = {
   kind: 'system_restart',
   translate(items) {
@@ -145,6 +173,7 @@ export class QueueRenderer {
   constructor() {
     this.register(chatTranslator);
     this.register(taskResultTranslator);
+    this.register(configUpdateTranslator);
     this.register(restartTranslator);
   }
 

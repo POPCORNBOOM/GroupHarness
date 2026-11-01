@@ -269,6 +269,11 @@ export class AdminWeb {
       this.sendJson(response, 200, { ok: true });
       return;
     }
+    if (method === 'GET' && url.pathname === '/api/tools') {
+      const group = this.groupFromQuery(url);
+      this.sendJson(response, 200, { tools: group.availableTools() });
+      return;
+    }
     if (method === 'GET' && url.pathname === '/api/messages') {
       const group = this.groupFromQuery(url);
       const before = parseNumber(url.searchParams.get('before'), 'before', 0);

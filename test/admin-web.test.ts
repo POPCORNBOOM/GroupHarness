@@ -70,6 +70,12 @@ test('web admin serves the page, guards the API, and drives the same admin path'
     assert.match(initial.settings.model.apikey, /sk-.*alue/);
     assert.equal((await fetch(base + '/api/settings')).status, 401);
     assert.equal((await fetch(base + '/api/settings', withToken())).status, 200);
+    assert.equal((await fetch(base + '/api/tools?group=demo')).status, 401);
+    const toolsPage = (await (
+      await fetch(base + '/api/tools?group=demo', withToken())
+    ).json()) as { tools: { name: string; async: boolean }[] };
+    assert.ok(toolsPage.tools.some((tool) => tool.name === 'read_file'));
+    assert.ok(toolsPage.tools.some((tool) => tool.name === 'run_command_async' && tool.async));
 
     const added = await fetch(
       base + '/api/members',
