@@ -242,6 +242,35 @@ test('web admin serves the page, guards the API, and drives the same admin path'
     assert.equal(sentMessage?.sender_id, 'alice');
     assert.equal(sentMessage?.source, 'web-admin');
     assert.equal(sentMessage?.text, '@bob admin sends this');
+
+    const group = harness.requireGroup('demo');
+    const secondId = group.send('alice', 'page two', 'user_message', 'test');
+    const thirdId = group.send('alice', 'page three', 'user_message', 'test');
+    const messagePage = (await (
+      await fetch(base + '/api/messages?group=demo&limit=2', withToken())
+    ).json()) as {
+      messages: { id: number; text: string }[];
+      before: number;
+      after: number;
+      hasMore: boolean;
+    };
+    assert.deepEqual(messagePage.messages.map((message) => message.text), ['page two', 'page three']);
+    assert.equal(messagePage.after, thirdId);
+    assert.equal(messagePage.hasMore, true);
+    const olderMessages = (await (
+      await fetch(base + '/api/messages?group=demo&before=' + messagePage.before + '&limit=2', withToken())
+    ).json()) as { messages: { text: string }[]; hasMore: boolean };
+    assert.ok(olderMessages.messages.some((message) => message.text === '@bob admin sends this'));
+    assert.equal(olderMessages.hasMore, false);
+    const deltaMessages = (await (
+      await fetch(base + '/api/messages?group=demo&after=' + sentBody.id + '&limit=2', withToken())
+    ).json()) as { messages: { id: number; text: string }[] };
+    assert.deepEqual(deltaMessages.messages.map((message) => message.id), [secondId, thirdId]);
+    assert.equal((await fetch(base + '/api/messages?group=demo', withToken({ headers: { 'x-admin-token': 'wrong' } }))).status, 401);
+    assert.equal(
+      (await fetch(base + '/api/messages?group=demo&before=1&after=1', withToken())).status,
+      400,
+    );
     assert.equal(
       (await fetch(
         base + '/api/messages',

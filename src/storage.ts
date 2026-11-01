@@ -305,6 +305,15 @@ export class GroupStore {
     return rows.map(messageFromRow);
   }
 
+  /** Up to `limit` messages immediately after `id`, oldest first. */
+  messagesAfter(id: number, limit: number): StoredMessage[] {
+    if (limit <= 0) return [];
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?')
+      .all(id, limit) as Record<string, SQLOutputValue>[];
+    return rows.map(messageFromRow);
+  }
+
   /** Up to `limit` messages immediately before `id`, oldest first. */
   messagesBefore(id: number, limit: number): StoredMessage[] {
     if (limit <= 0) return [];

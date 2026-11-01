@@ -259,6 +259,14 @@ export class Group {
     return this.store.latestMessages(limit);
   }
 
+  messagesBefore(id: number, limit: number): StoredMessage[] {
+    return this.store.messagesBefore(id, limit);
+  }
+
+  messagesAfter(id: number, limit: number): StoredMessage[] {
+    return this.store.messagesAfter(id, limit);
+  }
+
   searchMessages(readerId: string, options: SearchOptions): SearchPage {
     this.requireMember(readerId);
     return this.store.searchMessages(options);

@@ -269,6 +269,34 @@ export class AdminWeb {
       this.sendJson(response, 200, { ok: true });
       return;
     }
+    if (method === 'GET' && url.pathname === '/api/messages') {
+      const group = this.groupFromQuery(url);
+      const before = parseNumber(url.searchParams.get('before'), 'before', 0);
+      const after = parseNumber(url.searchParams.get('after'), 'after', 0);
+      if (before !== undefined && after !== undefined) {
+        throw new HttpError(400, 'use either "before" or "after", not both');
+      }
+      const limit = Math.min(parseNumber(url.searchParams.get('limit'), 'limit', 1) ?? 50, 200);
+      const messages =
+        before !== undefined
+          ? group.messagesBefore(before, limit)
+          : after !== undefined
+            ? group.messagesAfter(after, limit)
+            : group.latestMessages(limit);
+      const first = messages[0];
+      const last = messages[messages.length - 1];
+      const hasMore =
+        after !== undefined
+          ? last !== undefined && group.messagesAfter(last.id, 1).length > 0
+          : first !== undefined && group.messagesBefore(first.id, 1).length > 0;
+      this.sendJson(response, 200, {
+        messages,
+        before: first?.id ?? null,
+        after: last?.id ?? null,
+        hasMore,
+      });
+      return;
+    }
     if (method === 'GET' && url.pathname === '/api/context') {
       const group = this.groupFromQuery(url);
       const agent = url.searchParams.get('agent') ?? '';

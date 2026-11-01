@@ -424,6 +424,7 @@
         </form>
         <div class="section">
           <h2>Recent messages</h2>
+          <button type="button" id="messages-new" hidden>new messages ↓</button>
           <div id="messages-table" class="scroll"></div>
         </div>
         <form id="search-form" class="section">
@@ -563,6 +564,10 @@
   var contextTimer = null;
   var contextBusy = false;
   var contextSeq = 0;
+  var messageState = {
+    groupId: '', messages: [], oldest: null, newest: null, hasMore: false,
+    busy: false, timer: null, pending: 0, initial: false
+  };
 
   function $(selector) { return document.querySelector(selector); }
   function $$(selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); }
@@ -878,6 +883,7 @@
     if (state.settings) applyTheme(state.settings.webui);
     if (settingsView) {
       stopContextPolling();
+      stopMessagesPolling();
       $('#empty').hidden = true;
       $('#group-panel').hidden = true;
       $('#settings-panel').hidden = false;
@@ -892,6 +898,7 @@
     $('#group-panel').hidden = group === null;
     if (!group) {
       stopContextPolling();
+      stopMessagesPolling();
       return;
     }
     $('#group-title').textContent = group.name + ' · ' + group.id;
@@ -917,6 +924,8 @@
     }
     if (activeTab === 'agents') ensureContext();
     else stopContextPolling();
+    if (activeTab === 'messages') startMessagesPolling();
+    else stopMessagesPolling();
   }
 
   function renderGroups() {
@@ -1332,11 +1341,133 @@
     }));
   }
 
-  function renderMessages() {
-    var group = state.group;
-    renderTable($('#messages-table'), ['id', 'sender', 'kind', 'source', 'text'], group.messages.map(function (message) {
+  function messagesAtBottom() {
+    var container = $('#messages-table');
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  }
+  function setMessagesNew(count) {
+    messageState.pending = count;
+    var button = $('#messages-new');
+    button.hidden = count <= 0;
+    button.textContent = count > 0 ? count + ' new message' + (count === 1 ? '' : 's') + ' ↓' : '';
+  }
+  function scrollMessagesToBottom() {
+    var container = $('#messages-table');
+    container.scrollTop = container.scrollHeight;
+    setMessagesNew(0);
+  }
+  function renderMessagesTable() {
+    renderTable($('#messages-table'), ['id', 'sender', 'kind', 'source', 'text'], messageState.messages.map(function (message) {
       return [String(message.id), message.sender_id, message.kind, message.source, shorten(message.text, 240)];
     }));
+  }
+  async function loadOlderMessages() {
+    if (!state.group || messageState.busy || !messageState.hasMore || messageState.oldest === null) return;
+    messageState.busy = true;
+    var container = $('#messages-table');
+    var oldHeight = container.scrollHeight;
+    var oldTop = container.scrollTop;
+    try {
+      var page = await api(
+        '/api/messages?group=' + encodeURIComponent(state.group.id) +
+        '&before=' + messageState.oldest + '&limit=50'
+      );
+      if (page.messages.length > 0) {
+        messageState.messages = page.messages.concat(messageState.messages);
+        messageState.oldest = page.before;
+      }
+      messageState.hasMore = page.hasMore === true;
+      renderMessagesTable();
+      container.scrollTop = oldTop + (container.scrollHeight - oldHeight);
+    } catch (error) {
+      setStatus('error: ' + error.message, true);
+    } finally {
+      messageState.busy = false;
+    }
+  }
+  async function pollMessages() {
+    if (!state.group || messageState.busy) return;
+    messageState.busy = true;
+    var atBottom = messagesAtBottom();
+    try {
+      var cursor = messageState.newest === null ? '' : '&after=' + messageState.newest;
+      var page = await api(
+        '/api/messages?group=' + encodeURIComponent(state.group.id) + cursor + '&limit=50'
+      );
+      var seen = new Set(messageState.messages.map(function (message) { return message.id; }));
+      var added = page.messages.filter(function (message) { return !seen.has(message.id); });
+      if (added.length > 0) {
+        var container = $('#messages-table');
+        var oldTop = container.scrollTop;
+        messageState.messages = messageState.messages.concat(added);
+        messageState.oldest = messageState.messages[0].id;
+        messageState.newest = added[added.length - 1].id;
+        if (messageState.messages.length === added.length) messageState.hasMore = page.hasMore === true;
+        renderMessagesTable();
+        if (atBottom) scrollMessagesToBottom();
+        else {
+          container.scrollTop = oldTop;
+          setMessagesNew(messageState.pending + added.length);
+        }
+      }
+    } catch (error) {
+      setStatus('error: ' + error.message, true);
+    } finally {
+      messageState.busy = false;
+    }
+  }
+  function stopMessagesPolling() {
+    if (messageState.timer !== null) {
+      clearInterval(messageState.timer);
+      messageState.timer = null;
+    }
+  }
+  function startMessagesPolling() {
+    stopMessagesPolling();
+    if (!state || !state.group || activeTab !== 'messages') return;
+    messageState.timer = setInterval(function () { void pollMessages(); }, 1000);
+  }
+  function renderMessages() {
+    var group = state.group;
+    if (!group) {
+      stopMessagesPolling();
+      return;
+    }
+    if (messageState.groupId !== group.id) {
+      messageState.groupId = group.id;
+      messageState.messages = group.messages.slice();
+      messageState.oldest = messageState.messages.length ? messageState.messages[0].id : null;
+      messageState.newest = messageState.messages.length ? messageState.messages[messageState.messages.length - 1].id : null;
+      messageState.hasMore = group.messages.length >= 100;
+      messageState.pending = 0;
+      messageState.initial = true;
+      setMessagesNew(0);
+    } else {
+      var seen = new Set(messageState.messages.map(function (message) { return message.id; }));
+      group.messages.forEach(function (message) {
+        if ((messageState.newest === null || message.id > messageState.newest) && !seen.has(message.id)) {
+          messageState.messages.push(message);
+          messageState.newest = message.id;
+        }
+      });
+    }
+    if (messageState.messages.length > 0) {
+      messageState.oldest = messageState.messages[0].id;
+      messageState.newest = messageState.messages[messageState.messages.length - 1].id;
+    }
+    renderMessagesTable();
+    var container = $('#messages-table');
+    if (!container.dataset.scrollWired) {
+      container.dataset.scrollWired = '1';
+      container.addEventListener('scroll', function () {
+        if (messagesAtBottom()) setMessagesNew(0);
+        if (container.scrollTop <= 20) void loadOlderMessages();
+      });
+    }
+    if (messageState.initial) {
+      messageState.initial = false;
+      setTimeout(scrollMessagesToBottom, 0);
+    }
     var form = $('#send-message');
     var users = group.members.filter(function (member) { return member.type === 'user'; });
     fillOptions(form.elements.user, users, form.elements.user.value);
@@ -1416,6 +1547,10 @@
         $$('[data-panel]').forEach(function (panel) { panel.hidden = panel.dataset.panel !== activeTab; });
         if (activeTab === 'agents') ensureContext();
         else stopContextPolling();
+        if (activeTab === 'messages') {
+          startMessagesPolling();
+          scrollMessagesToBottom();
+        } else stopMessagesPolling();
       });
     });
     $('#create-group').addEventListener('submit', async function (event) {
@@ -1514,6 +1649,7 @@
         setStatus('agent config saved');
       } catch (error) { setStatus('error: ' + error.message, true); }
     });
+    $('#messages-new').addEventListener('click', function () { scrollMessagesToBottom(); });
     $('#context-refresh').addEventListener('click', function () { void loadContextInitial(); });
     $('#context-older').addEventListener('click', function () { void loadContextOlder(); });
     $('#context-live').addEventListener('change', function () {
@@ -1531,6 +1667,7 @@
         });
         form.elements.text.value = '';
         await load(true);
+        scrollMessagesToBottom();
         setStatus('message sent as ' + data.user);
       } catch (error) { setStatus('error: ' + error.message, true); }
     });
