@@ -179,6 +179,39 @@ test('web admin serves the page, guards the API, and drives the same admin path'
     );
     assert.equal(permission.status, 200);
 
+    const sent = await fetch(
+      base + '/api/messages',
+      withToken({
+        method: 'POST',
+        body: JSON.stringify({ group: 'demo', user: 'alice', text: '@bob admin sends this' }),
+      }),
+    );
+    assert.equal(sent.status, 200);
+    const sentBody = (await sent.json()) as { ok: boolean; id: number };
+    assert.equal(sentBody.ok, true);
+    assert.ok(sentBody.id > 0);
+    const afterSend = (await (await fetch(base + '/api/state?group=demo', withToken())).json()) as {
+      group: { messages: { id: number; sender_id: string; source: string; text: string }[] };
+    };
+    const sentMessage = afterSend.group.messages.find((entry) => entry.id === sentBody.id);
+    assert.equal(sentMessage?.sender_id, 'alice');
+    assert.equal(sentMessage?.source, 'web-admin');
+    assert.equal(sentMessage?.text, '@bob admin sends this');
+    assert.equal(
+      (await fetch(
+        base + '/api/messages',
+        withToken({ method: 'POST', body: JSON.stringify({ group: 'demo', user: 'bob', text: 'nope' }) }),
+      )).status,
+      400,
+    );
+    assert.equal(
+      (await fetch(
+        base + '/api/messages',
+        withToken({ method: 'POST', body: JSON.stringify({ group: 'demo', user: 'alice', text: '  ' }) }),
+      )).status,
+      400,
+    );
+
     const message = harness.requireGroup('demo').send('alice', 'web search hello', 'user_message', 'test');
     assert.ok(message > 0);
     const search = (await (await fetch(base + '/api/search?group=demo&q=hello', withToken())).json()) as {
@@ -193,6 +226,7 @@ test('web admin serves the page, guards the API, and drives the same admin path'
     const audit = readFileSync(root + '/.groupharness/audit.jsonl', 'utf8');
     assert.match(audit, /"actor":"web"/);
     assert.match(audit, /"action":"set_settings"/);
+    assert.match(audit, /"action":"send_as_user"/);
     assert.equal(audit.includes('sk-web-secret'), false);
     assert.equal(audit.includes('sk-test-secret-value'), false);
   } finally {

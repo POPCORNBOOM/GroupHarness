@@ -312,6 +312,15 @@
       </section>
 
       <section data-panel="messages" hidden>
+        <form id="send-message" class="section">
+          <h2>Send as user</h2>
+          <div class="row">
+            <select name="user"></select>
+            <input name="text" size="60" placeholder="message text; @mention allowed" required>
+            <button type="submit">send</button>
+          </div>
+          <p class="muted">Posts as the selected user. The audit actor is web.</p>
+        </form>
         <div class="section">
           <h2>Recent messages</h2>
           <div id="messages-table" class="scroll"></div>
@@ -1045,14 +1054,18 @@
 
   function renderMessages() {
     var group = state.group;
-    renderTable($('#messages-table'), ['id', 'sender', 'kind', 'text'], group.messages.map(function (message) {
-      return [String(message.id), message.sender_id, message.kind, shorten(message.text, 240)];
+    renderTable($('#messages-table'), ['id', 'sender', 'kind', 'source', 'text'], group.messages.map(function (message) {
+      return [String(message.id), message.sender_id, message.kind, message.source, shorten(message.text, 240)];
     }));
+    var form = $('#send-message');
+    var users = group.members.filter(function (member) { return member.type === 'user'; });
+    fillOptions(form.elements.user, users, form.elements.user.value);
+    form.querySelector('button[type="submit"]').disabled = users.length === 0;
   }
 
   function renderSearch(messages) {
-    renderTable($('#search-results'), ['id', 'sender', 'kind', 'text'], messages.map(function (message) {
-      return [String(message.id), message.sender_id, message.kind, shorten(message.text, 240)];
+    renderTable($('#search-results'), ['id', 'sender', 'kind', 'source', 'text'], messages.map(function (message) {
+      return [String(message.id), message.sender_id, message.kind, message.source, shorten(message.text, 240)];
     }));
   }
 
@@ -1216,6 +1229,20 @@
         await api('/api/agent-config', { method: 'PUT', body: { group: state.group.id, agent: selectedAgent, patch: patch } });
         await load(true);
         setStatus('agent config saved');
+      } catch (error) { setStatus('error: ' + error.message, true); }
+    });
+    $('#send-message').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var form = event.currentTarget;
+      var data = formData(form);
+      try {
+        await api('/api/messages', {
+          method: 'POST',
+          body: { group: state.group.id, user: data.user, text: data.text }
+        });
+        form.elements.text.value = '';
+        await load(true);
+        setStatus('message sent as ' + data.user);
       } catch (error) { setStatus('error: ' + error.message, true); }
     });
     $('#search-form').addEventListener('submit', function (event) {

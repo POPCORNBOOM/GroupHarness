@@ -183,6 +183,39 @@ export class AdminWeb {
       this.sendJson(response, 200, { ok: true, id: group.id });
       return;
     }
+    if (method === 'POST' && url.pathname === '/api/messages') {
+      const body = asRecord(await this.readJson(request));
+      const group = this.groupOf(requiredString(body, 'group'));
+      const user = requiredString(body, 'user');
+      const text = requiredString(body, 'text');
+      try {
+        if (group.memberType(user) !== 'user') {
+          throw new HttpError(400, '"user" must name a user member');
+        }
+        const id = group.send(user, text, 'user_message', 'web-admin');
+        this.harness.audit.record({
+          actor: 'web',
+          group_id: group.id,
+          action: 'send_as_user',
+          target: user,
+          after: { message_id: id, text },
+          ok: true,
+        });
+        this.sendJson(response, 200, { ok: true, id });
+      } catch (error) {
+        this.harness.audit.record({
+          actor: 'web',
+          group_id: group.id,
+          action: 'send_as_user',
+          target: user,
+          after: { text },
+          ok: false,
+          error: (error as Error).message,
+        });
+        throw error;
+      }
+      return;
+    }
     if (method === 'POST' && url.pathname === '/api/members') {
       const body = asRecord(await this.readJson(request));
       const group = this.groupOf(requiredString(body, 'group'));

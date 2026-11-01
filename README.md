@@ -84,8 +84,12 @@ WebSocket 客户端连上来：
 - agent 列表；每个 agent 的 model / tools / working_directory / file_permission 覆盖
 - 任务列表、任务详情（读私有任务写审计）
 - 最近消息与消息搜索
+- 以任意 user 成员身份发消息（source=`web-admin`，审计 actor=`web`）
 - 软件设置（全局 model / file_permission / working_directory / mock IM / 主题色）
 - reload config
+
+管理员可以在 messages 页选择任意 user 成员发消息；消息来源记为 `web-admin`，审计记录
+`send_as_user`。这不是聊天页面，只是管理操作。
 
 API 写操作需要启动时随机生成的 token；终端 URL 里的 `?token=...` 就是它。页面把 token
 存进 `sessionStorage`，之后的 API 请求用 `X-Admin-Token` 头。直接打开不带 token 的
