@@ -3,7 +3,8 @@
 以「群」为核心的 agent 聊天运行时。群是用户、agent 与消息的容器；群没有记忆，记忆属于每个
 agent 自己。聊天流与任务流严格分离：任务状态和结果永远不会写进聊天记录。
 
-实现依据：`Group Harness Design v1.0.md`。第一版范围已全部实现，包含本地模拟 IM 与 Ink TUI。
+实现依据：`Group Harness Design v1.0.md`。第一版范围已全部实现，包含本地模拟 IM、Web 管理台
+（默认）与 Ink TUI（备用）。
 
 ## 两条流
 
@@ -45,11 +46,22 @@ npm run gh -- permission demo manage_group core
 npm run gh -- policy-add demo bob mention user 6
 npm run gh -- agent-set demo bob tools=read_file,write_file,list_dir,run_command,run_command_async dir=.
 
-# 打开控制台（会启动模拟 IM：ws://127.0.0.1:8787）
+# 启动 Web 管理台 + 模拟 IM；终端会打印带 token 的本地 URL
 npm start
+
+# 或者继续用终端控制台
+npm run tui
 ```
 
-模拟 IM 是聊天入口，TUI 只做控制面。可以用任意 WebSocket 客户端连上来：
+`npm start` 会打印：
+
+```
+Group Harness admin: http://127.0.0.1:8787/?token=...
+Mock IM: ws://127.0.0.1:8787
+```
+
+用浏览器打开第一个 URL。页面只做管理，不做聊天；聊天仍然走模拟 IM。可以用任意
+WebSocket 客户端连上来：
 
 ```json
 {"type":"hello","group_id":"demo","user_id":"alice"}
@@ -58,6 +70,28 @@ npm start
 
 服务端帧：`hello_ok` / `message` / `task_result` / `sent` / `error`。
 完整可运行客户端见 `scripts/demo.ts`。
+
+## Web 管理台
+
+默认入口（`npm start`），和模拟 IM 共用同一个端口，因此不需要第二个端口或前端构建。
+
+页面提供的操作：
+
+- 群列表、创建群；群配置覆盖（model / working_directory / file_permission）
+- 成员列表、添加成员、身份组、用户 listen 配置
+- 响应策略增删
+- 六个权限到身份组的绑定
+- agent 列表；每个 agent 的 model / tools / working_directory / file_permission 覆盖
+- 任务列表、任务详情（读私有任务写审计）
+- 最近消息与消息搜索
+- reload config
+
+API 写操作需要启动时随机生成的 token；终端 URL 里的 `?token=...` 就是它。页面把 token
+存进 `sessionStorage`，之后的 API 请求用 `X-Admin-Token` 头。直接打开不带 token 的
+`http://127.0.0.1:8787/` 只会看到 token 输入框；不会暴露数据。
+
+样式约束：`admin.html` 只定义 `--accent` / `--bg` / `--fg` 三个颜色，所有按钮、输入框、
+表格、面板统一是 1px 边框、0 圆角，无阴影、无渐变。
 
 ### 一键真实模型演示
 
@@ -71,8 +105,8 @@ npm run demo
 
 ## 控制台命令
 
-TUI 与 `npm run gh -- <command>` 共用同一套命令；TUI 里 `view <overview|messages|tasks>`、
-`select <group>`、`quit` 是额外命令。
+Web 管理台是默认入口；TUI 与 `npm run gh -- <command>` 共用下面这套命令。TUI 里
+`view <overview|messages|tasks>`、`select <group>`、`quit` 是额外命令。
 
 ```
 groups
@@ -96,7 +130,8 @@ reload
 help
 ```
 
-TUI 写操作与管理员读私有任务都会写入审计；apikey 在展示与审计中均为脱敏值。
+Web/TUI/CLI 写操作与管理员读私有任务都会写入审计（Web 写操作 actor 为 `web`，TUI 为
+`tui`）；apikey 在展示与审计中均为脱敏值。
 
 ## 配置
 
@@ -148,9 +183,11 @@ post。异常、超时、拒绝都变成结构化结果 `{error, message}`，不
 
 ```
 src/
-  main.ts          CLI / TUI 入口
-  harness.ts       配置、群、模拟 IM、启动顺序
+  main.ts          CLI / Web / TUI 入口
+  harness.ts       配置、群、模拟 IM、Web 管理台、启动顺序
   group.ts         群公共面 + GroupAdmin（bypass_permission 内部句柄）
+  admin-web.ts     Web 管理台 HTTP API（token、审计 actor=web）
+  admin.html       单页管理界面（纯 HTML/CSS/JS，无构建）
   agent.ts         agent 上下文、队列消费、工具循环
   tools.ts         工具注册表 + 内置工具
   llm.ts           OpenAI chat completions / Anthropic messages 适配
@@ -177,7 +214,8 @@ npm test
 
 覆盖：配置合并与严格校验、路径权限（含符号链接逃逸）、FTS/短词回退与分页、事务回滚、
 v1 → v2 schema 迁移、队列状态机、分发规则、监听过滤、agent 工具循环与上下文恢复、
-运行时新增成员、异步任务结果通道、公开/私有任务可见性、两套 LLM 协议映射、模拟 IM 往返。
+运行时新增成员、异步任务结果通道、公开/私有任务可见性、两套 LLM 协议映射、模拟 IM 往返、
+Web 管理台 token/API/审计与样式约束。
 
 ## 已知边界（第一版）
 
@@ -185,10 +223,13 @@ v1 → v2 schema 迁移、队列状态机、分发规则、监听过滤、agent 
 - 全文检索用 FTS5 trigram；少于 3 个字符（常见中文双字词）回退到 `LIKE`。
 - 模拟 IM 无鉴权，仅用于本地开发；离线投递是内存 outbox（上限 100 条），重连即冲刷，
   进程崩溃会丢未送达消息。
-- 同一 harness 同时只应有一个 `runtime` 进程（TUI）。命令行控制默认不启动 agent runtime，
-  因此和 TUI 并存是安全的；但两处 TUI 同时跑会重复消费队列。
-- 外部直接改 `meta.toml` / agent config 后，运行中的 TUI 需执行 `reload` 才会读到新成员/策略；
-  模型与权限配置在每次 agent 唤醒时自然重读。
+- 同一 harness 同时只应有一个 `runtime` 进程（Web 或 TUI，二选一）。命令行控制默认不启动
+  agent runtime，因此和 Web/TUI 并存是安全的；但两个 runtime 同时跑会重复消费队列。
+- Web 管理台和模拟 IM 共用一个端口。若端口被现有 TUI 占用，先退出它（或在 `[im]` 改端口）
+  再 `npm start`。
+- Web 管理台和模拟 IM 都只应绑 `127.0.0.1`；改 host 前先想清楚，mock IM 本身没有鉴权。
+- 外部直接改 `meta.toml` / agent config 后，运行中的 Web/TUI 需点 `reload config`（或执行
+  `reload`）才会读到新成员/策略；模型与权限配置在每次 agent 唤醒时自然重读。
 - 无插件系统、无真实 IM、无任务重试、无人为防循环上限（与设计文档一致）。
 - 任务失败/队列失败保留在数据库中供排查，不自动重试。
 - 第一版允许明文 apikey；`file_permission` 默认不限制，启用文件工具的 agent 可以读工作目录内的
